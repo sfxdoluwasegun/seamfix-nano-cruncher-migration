@@ -9,6 +9,7 @@ import java.util.concurrent.TimeUnit;
 
 import javax.annotation.PostConstruct;
 import javax.ejb.AccessTimeout;
+import javax.ejb.Asynchronous;
 import javax.ejb.Lock;
 import javax.ejb.LockType;
 import javax.ejb.Singleton;
@@ -30,8 +31,12 @@ import com.nano.gcruncher.model.IPayment;
 import com.nano.gcruncher.model.IPayment_;
 import com.nano.jpa.entity.Borrow;
 import com.nano.jpa.entity.Borrow_;
+import com.nano.jpa.entity.Dealing;
+import com.nano.jpa.entity.Dealing_;
 import com.nano.jpa.entity.Nano;
 import com.nano.jpa.entity.Nano_;
+import com.nano.jpa.entity.OtherDealing;
+import com.nano.jpa.entity.OtherDealing_;
 import com.nano.jpa.entity.Payment;
 import com.nano.jpa.entity.Payment_;
 import com.nano.jpa.entity.Settings;
@@ -43,8 +48,10 @@ import com.nano.jpa.entity.Subscriber;
 import com.nano.jpa.entity.Subscriber_;
 import com.nano.jpa.entity.ras.BorrowableAmount;
 import com.nano.jpa.entity.ras.BorrowableAmount_;
+import com.nano.jpa.enums.DealType;
 import com.nano.jpa.enums.Merchant;
 import com.nano.jpa.enums.MerchantData;
+import com.nano.jpa.enums.OperationType;
 import com.nano.jpa.enums.PaymentStatus;
 import com.nano.jpa.enums.ReturnMode;
 import com.nano.jpa.enums.SettingType;
@@ -54,19 +61,19 @@ import com.nano.jpa.enums.SettlementType;
 @Lock(LockType.READ)
 @AccessTimeout(unit = TimeUnit.MINUTES, value = 3)
 public class QueryManager {
-	
+
 	private Logger log = Logger.getLogger(getClass());
-	
+
 	private CriteriaBuilder criteriaBuilder ;
 
 	@PersistenceContext(unitName = "nano-ext")
 	private EntityManager entityManager ;
-	
+
 	@PostConstruct
 	public void init(){
 		criteriaBuilder = entityManager.getCriteriaBuilder();
 	}
-	
+
 	/**
 	 * Fetch {@link Borrow} by subscriber, principal and timestamp properties.
 	 *
@@ -77,29 +84,29 @@ public class QueryManager {
 	 */
 	public Borrow getBorrowBySubscriberAndPrincipalAndTimeStamp(Subscriber subscriber, 
 			BigDecimal principal, Timestamp receivedTimestamp){
-		
+
 		CriteriaQuery<Borrow> criteriaQuery = criteriaBuilder.createQuery(Borrow.class);
 		Root<Borrow> root = criteriaQuery.from(Borrow.class);
-		
+
 		Predicate predicate = criteriaBuilder.and(
 				criteriaBuilder.equal(root.get(Borrow_.principal), principal), 
 				criteriaBuilder.equal(root.get(Borrow_.receivedTimestamp), receivedTimestamp), 
 				criteriaBuilder.equal(root.get(Borrow_.subscriber), subscriber)
 				);
-		
+
 		criteriaQuery.select(root);
 		criteriaQuery.where(predicate);
-		
+
 		try {
 			return entityManager.createQuery(criteriaQuery).getSingleResult();
 		} catch (Exception e) {
 			// TODO Auto-generated catch block
 			log.error("No Borrow was found for subscriber:" + subscriber.getMsisdn() + " with principal:" + principal + " and receivedTimestamp:" + receivedTimestamp);
 		}
-		
+
 		return null;
 	}
-	
+
 	/**
 	 * Creates or fetches a unique {@link Subscriber} record.
 	 *
@@ -108,9 +115,9 @@ public class QueryManager {
 	 */
 	@TransactionAttribute(TransactionAttributeType.REQUIRES_NEW)
 	public Subscriber createSubscriber(String msisdn){
-		
+
 		Subscriber subscriber = getSubscriberByMsisdn(formatMisisdn(msisdn));
-		
+
 		if (subscriber != null)
 			return subscriber;
 
@@ -121,7 +128,7 @@ public class QueryManager {
 
 		return (Subscriber) create(subscriber);
 	}
-	
+
 	/**
 	 * Creates payment info for a loan using <code>MapMessage</code> for optimization.
 	 * 
@@ -148,7 +155,7 @@ public class QueryManager {
 			int brandid, int subcosid, BigDecimal balanceBeforePayment, 
 			long timestamp, 
 			String serialno, String triggermsisdn){
-		
+
 		Payment	payment = new Payment();
 		payment.setAmountOwedAfterPayment(amountOwedAfterPayment);
 		payment.setAmountOwedBeforePayment(amountOwedBeforePayment);
@@ -167,10 +174,10 @@ public class QueryManager {
 		payment.setSerialNo(serialno);
 		payment.setSubCosId(subcosid);
 		payment.setTriggerMsisdn(triggermsisdn);
-		
+
 		return payment;
 	}
-	
+
 	/**
 	 * Fetch BorrowableAmount by amount property.
 	 * 
@@ -178,23 +185,23 @@ public class QueryManager {
 	 * @return {@link BorrowableAmount}
 	 */
 	public BorrowableAmount getBorrowableAmountByAmount(int amount){
-		
+
 		CriteriaQuery<BorrowableAmount> criteriaQuery = criteriaBuilder.createQuery(BorrowableAmount.class);
 		Root<BorrowableAmount> root = criteriaQuery.from(BorrowableAmount.class);
-		
+
 		criteriaQuery.select(root);
 		criteriaQuery.where(criteriaBuilder.equal(root.get(BorrowableAmount_.amount), amount));
-		
+
 		try {
 			return entityManager.createQuery(criteriaQuery).getSingleResult();
 		} catch (Exception e) {
 			// TODO Auto-generated catch block
 			log.error("No BorrowableAmount instance found amount:" + amount);
 		}
-		
+
 		return null;
 	}
-	
+
 	/**
 	 * Update {@link Borrow} with payment record using <code>MapMessage</code> for optimization.
 	 * Persist {@link Payment} record.
@@ -207,21 +214,21 @@ public class QueryManager {
 	public void updateBorrowDataWithPaymentRecord(Borrow borrow, 
 			PaymentStatus paymentStatus, 
 			BigDecimal amountPaid, double servicePercentage){
-		
+
 		BigDecimal currentPendingBalance = borrow.getCurrentPendingBalance().subtract(amountPaid);
 		if (currentPendingBalance.compareTo(BigDecimal.ZERO) < 0)
 			currentPendingBalance = BigDecimal.ZERO;
-		
+
 		BigDecimal totalamountpaid = borrow.getAmountApproved().subtract(currentPendingBalance);
 		BigDecimal recoveredCharge = BigDecimal.valueOf((servicePercentage/100D)).multiply(totalamountpaid) ;
-		
+
 		borrow.setCurrentPendingBalance(currentPendingBalance);
 		borrow.setPaymentStatus(paymentStatus);
 		borrow.setRecoveredCharge(recoveredCharge);
-		
+
 		update(borrow);
 	}
-	
+
 	/**
 	 * Update {@link Borrow} with payment record using <code>MapMessage</code> for optimization.
 	 * Persist {@link Payment} record.
@@ -252,33 +259,33 @@ public class QueryManager {
 			BigDecimal loanPenaltyBeforePayment, Long brandid, Long subcosid, BigDecimal balanceBeforePayment, 
 			long timestamp, 
 			String serialno, String triggermsisdn){
-		
+
 		BigDecimal currentPendingBalance = borrow.getCurrentPendingBalance().subtract(returnAmount);
-		
+
 		if (currentPendingBalance.compareTo(BigDecimal.ZERO) < 0)
 			currentPendingBalance = BigDecimal.ZERO;
-		
+
 		if (returnAmount.compareTo(borrow.getCurrentPendingBalance()) > 0)
 			returnAmount = currentPendingBalance ;
-		
+
 		BigDecimal totalamountpaid = borrow.getAmountApproved().subtract(currentPendingBalance);
 		BigDecimal recoveredCharge = BigDecimal.valueOf((servicePercentage/100D)).multiply(totalamountpaid) ;
-		
+
 		borrow.setCurrentPendingBalance(currentPendingBalance);
 		borrow.setPaymentStatus(paymentStatus);
 		borrow.setRecoveredCharge(recoveredCharge);
-		
+
 		Payment payment = initializePaymentForLoan(borrow, returnAmount, returnMode, Merchant.NANO, 
 				amountOwedBeforePayment, amountOwedAfterPayment, balanceAfterPayment, loanPenaltyAfterPayment, loanPenaltyBeforePayment, 
 				Integer.parseInt(brandid.toString()), Integer.parseInt(subcosid.toString()), balanceBeforePayment, timestamp, serialno, triggermsisdn);
-		
+
 		BigDecimal bulk = BigDecimal.valueOf((servicePercentage/100D)).multiply(returnAmount);
 		createSettlementTrail(bulk, payment, SettlementType.INTEREST);
-		
+
 		update(borrow);
 		borrow.addPayments(payment);
 	}
-	
+
 	/**
 	 * Clear subscriber debt.
 	 *
@@ -288,7 +295,7 @@ public class QueryManager {
 		subscriber.setInDebt(false);
 		update(subscriber);
 	}
-	
+
 	/**
 	 * Create {@link SettlementTrail} for {@link Payment} interest.
 	 * 
@@ -298,14 +305,14 @@ public class QueryManager {
 	 */
 	public void createSettlementTrail(BigDecimal bulk, 
 			Payment payment, SettlementType settlementType){
-		
+
 		List<Settlement> settlements = getSettlementBySettlementType(settlementType);
 		if (settlements == null)
 			return;
-		
+
 		for (Settlement settlement : settlements){
 			BigDecimal amount = BigDecimal.valueOf((settlement.getPercentage()/100D)).multiply(bulk);
-			
+
 			SettlementTrail settlementTrail = new SettlementTrail();
 			settlementTrail.setAccountNumber(settlement.getAccountNumber());
 			settlementTrail.setAmount(amount);
@@ -314,11 +321,11 @@ public class QueryManager {
 			settlementTrail.setPayment(payment);
 			settlementTrail.setSettlementType(settlementType);
 			settlementTrail.setTimestamp(Timestamp.valueOf(LocalDateTime.now()));
-			
+
 			create(settlementTrail);
 		}
 	}
-	
+
 	/**
 	 * Fetch {@link Payment} by subscriber, amount and timestamp properties.
 	 *
@@ -331,34 +338,34 @@ public class QueryManager {
 	public Payment getPaymentBySubscriberAndAmountAndTimestamp(Subscriber subscriber, 
 			BigDecimal amountPaid, Timestamp timestamp, 
 			Merchant merchant){
-		
+
 		CriteriaQuery<Payment> criteriaQuery = criteriaBuilder.createQuery(Payment.class);
 		Root<Payment> root = criteriaQuery.from(Payment.class);
-		
+
 		Join<Payment, Borrow> join = root.join(Payment_.borrow);
-		
+
 		Predicate predicate = criteriaBuilder.and(
 				criteriaBuilder.equal(root.get(Payment_.rechargeTime), timestamp), 
 				criteriaBuilder.equal(root.get(Payment_.amountPaid), amountPaid), 
 				criteriaBuilder.equal(join.get(Borrow_.subscriber), subscriber)
 				);
-		
+
 		criteriaQuery.select(root);
 		if (merchant != null)
 			criteriaQuery.where(predicate, criteriaBuilder.equal(root.get(Payment_.merchant), merchant));
 		else
 			criteriaQuery.where(predicate);
-		
+
 		try {
 			return entityManager.createQuery(criteriaQuery).getSingleResult();
 		} catch (Exception e) {
 			// TODO Auto-generated catch block
 			log.error("No payment was found for subscriber:" + subscriber.getMsisdn() + " with rechargeTime:" + timestamp + " and amount:" + amountPaid);
 		}
-		
+
 		return null;
 	}
-	
+
 	/**
 	 * Fetch {@link Payment} by subscriber, amount and time-stamp properties.
 	 *
@@ -369,26 +376,26 @@ public class QueryManager {
 	@Lock(LockType.WRITE)
 	public Payment getPaymentByBorrowAndTimestamp(Borrow borrow, 
 			Timestamp timestamp){
-		
+
 		CriteriaQuery<Payment> criteriaQuery = criteriaBuilder.createQuery(Payment.class);
 		Root<Payment> root = criteriaQuery.from(Payment.class);
-		
+
 		criteriaQuery.select(root);
 		criteriaQuery.where(criteriaBuilder.and(
 				criteriaBuilder.equal(root.get(Payment_.rechargeTime), timestamp), 
 				criteriaBuilder.equal(root.get(Payment_.borrow), borrow)
 				));
-		
+
 		try {
 			return entityManager.createQuery(criteriaQuery).getSingleResult();
 		} catch (Exception e) {
 			// TODO Auto-generated catch block
 			log.error("No payment was found for borrow:" + borrow.getPk() + " with rechargeTime:" + timestamp);
 		}
-		
+
 		return null;
 	}
-	
+
 	/**
 	 * Fetch {@link Payment} primaryKey by borrow and time stamp properties.
 	 *
@@ -398,26 +405,26 @@ public class QueryManager {
 	 */
 	public Long getPaymentPKByBorrowAndTimestamp(Borrow borrow, 
 			Timestamp timestamp){
-		
+
 		CriteriaQuery<Long> criteriaQuery = criteriaBuilder.createQuery(Long.class);
 		Root<Payment> root = criteriaQuery.from(Payment.class);
-		
+
 		criteriaQuery.select(root.get(Payment_.pk));
 		criteriaQuery.where(criteriaBuilder.and(
 				criteriaBuilder.equal(root.get(Payment_.rechargeTime), timestamp), 
 				criteriaBuilder.equal(root.get(Payment_.borrow), borrow)
 				));
-		
+
 		try {
 			return entityManager.createQuery(criteriaQuery).getSingleResult();
 		} catch (Exception e) {
 			// TODO Auto-generated catch block
 			log.error("No payment was found for borrow:" + borrow.getPk() + " with rechargeTime:" + timestamp);
 		}
-		
+
 		return 0L;
 	}
-	
+
 	/**
 	 * Persist entity and add entity instance to {@link EntityManager}.
 	 * 
@@ -436,10 +443,10 @@ public class QueryManager {
 			// TODO Auto-generated catch block
 			log.error("", e);
 		}
-		
+
 		return null;
 	}
-	
+
 	/**
 	 * Fetch NANO by name property.
 	 * 
@@ -447,23 +454,23 @@ public class QueryManager {
 	 * @return {@link Nano}
 	 */
 	public Nano getNanoByName(String name){
-		
+
 		CriteriaQuery<Nano> criteriaQuery = criteriaBuilder.createQuery(Nano.class);
 		Root<Nano> root = criteriaQuery.from(Nano.class);
-		
+
 		criteriaQuery.select(root);
 		criteriaQuery.where(criteriaBuilder.equal(root.get(Nano_.name), name));
-		
+
 		try {
 			return entityManager.createQuery(criteriaQuery).getSingleResult();
 		} catch (Exception e) {
 			// TODO Auto-generated catch block
 			log.error("No Nano instance was found with name:" + name);
 		}
-		
+
 		return createDefaultNano(name);
 	}
-	
+
 	/**
 	 * Creates the default {@link Nano} instance.
 	 *
@@ -487,10 +494,10 @@ public class QueryManager {
 		nano.setVendorId(MerchantData.NANO.getVendorid());
 		nano.setUri("http://nanoairtime.com");
 		nano.setPoolCap(BigDecimal.valueOf(25000000));
-		
+
 		return (Nano) create(nano);
 	}
-	
+
 	/**
 	 * Fetch Settings by name property.
 	 * 
@@ -498,23 +505,23 @@ public class QueryManager {
 	 * @return {@link Settings}
 	 */
 	public Settings getSettingsByName(String name){
-		
+
 		CriteriaQuery<Settings> criteriaQuery = criteriaBuilder.createQuery(Settings.class);
 		Root<Settings> root = criteriaQuery.from(Settings.class);
-		
+
 		criteriaQuery.select(root);
 		criteriaQuery.where(criteriaBuilder.equal(root.get(Settings_.name), name));
-		
+
 		try {
 			return entityManager.createQuery(criteriaQuery).getSingleResult();
 		} catch (Exception e) {
 			// TODO Auto-generated catch block
 			log.error("No Setting instance found with name:" + name);
 		}
-		
+
 		return null;
 	}
-	
+
 	/**
 	 * Create a new Setting instance or return existing.
 	 * 
@@ -526,21 +533,21 @@ public class QueryManager {
 	 */
 	public Settings createSettings(String name, 
 			String value, String description, SettingType settingType){
-		
+
 		Settings settings = getSettingsByName(name);
-		
+
 		if (settings != null)
 			return settings;
-		
+
 		settings = new Settings();
 		settings.setDescription(description);
 		settings.setName(name);
 		settings.setType(settingType);
 		settings.setValue(value);
-		
+
 		return (Settings) create(settings);
 	}
-	
+
 	/**
 	 * Fetch {@link Settlement} by {@link SettlementType} property.
 	 *
@@ -548,26 +555,26 @@ public class QueryManager {
 	 * @return {@link Settlement}
 	 */
 	public List<Settlement> getSettlementBySettlementType(SettlementType settlementType){
-		
+
 		CriteriaQuery<Settlement> criteriaQuery = criteriaBuilder.createQuery(Settlement.class);
 		Root<Settlement> root = criteriaQuery.from(Settlement.class);
-		
+
 		criteriaQuery.select(root);
 		criteriaQuery.where(criteriaBuilder.and(
 				criteriaBuilder.equal(root.get(Settlement_.deactivated), false), 
 				criteriaBuilder.equal(root.get(Settlement_.settlementType), settlementType)
 				));
-		
+
 		try {
 			return entityManager.createQuery(criteriaQuery).getResultList();
 		} catch (Exception e) {
 			// TODO Auto-generated catch block
 			log.error("No Settlement instance found for settlementType:" + settlementType.name());
 		}
-		
+
 		return null;
 	}
-	
+
 	/**
 	 * Fetch {@link Subscriber} by MSISDN property.
 	 * 
@@ -575,23 +582,23 @@ public class QueryManager {
 	 * @return {@link Subscriber}
 	 */
 	public Subscriber getSubscriberByMsisdn(String msisdn){
-		
+
 		CriteriaQuery<Subscriber> criteriaQuery = criteriaBuilder.createQuery(Subscriber.class);
 		Root<Subscriber> root = criteriaQuery.from(Subscriber.class);
-		
+
 		criteriaQuery.select(root);
 		criteriaQuery.where(criteriaBuilder.equal(root.get(Subscriber_.msisdn), formatMisisdn(msisdn)));
-		
+
 		try {
 			return entityManager.createQuery(criteriaQuery).getSingleResult();
 		} catch (Exception e) {
 			// TODO Auto-generated catch block
 			log.warn("No subscriber instance was found with msisdn:" + msisdn);;
 		}
-		
+
 		return null;
 	}
-	
+
 	/**
 	 * 
 	 * @param borrowvalues
@@ -612,9 +619,9 @@ public class QueryManager {
 	public void persistBorrowInstance(BigDecimal borrowvalues, BigDecimal bfborrowvalues, BigDecimal accountleft, BigDecimal bfaccountleft, BigDecimal charge, 
 			Long brandid, Long homeareanumber, String msisdn, long timestamp, String referenceNo, String serialno, Long subcosid, String vendorid) {
 		// TODO Auto-generated method stub
-		
+
 		BigDecimal ammountapproved = bfborrowvalues.add(charge);
-		
+
 		IBorrow borrow = new IBorrow();
 		borrow.setAmountApproved(ammountapproved);
 		borrow.setAmountOwedAfterBorrowed(ammountapproved);
@@ -636,10 +643,10 @@ public class QueryManager {
 		borrow.setSerialNo(serialno);
 		borrow.setSubCosId(subcosid);
 		borrow.setVendorId(vendorid);
-		
+
 		create(borrow);
 	}
-	
+
 	/**
 	 * Persist temp payment table to test CDR-5 crunching implementation.
 	 * 
@@ -664,7 +671,7 @@ public class QueryManager {
 			BigDecimal amountOwedAfterPayment, BigDecimal balanceAfterPayment, BigDecimal balanceBeforePayment, BigDecimal loanPenaltyAfterPayment, BigDecimal loanPenaltyBeforePayment, long brandid, long subcosid,
 			long timestamp, String serialno, String msisdn, BigDecimal returnamount, String triggermsisdn, String vendorId) {
 		// TODO Auto-generated method stub
-		
+
 		IPayment payment = new IPayment();
 		payment.setAmountOwedAfterPayment(amountOwedAfterPayment);
 		payment.setAmountOwedBeforePayment(amountOwedBeforePayment);
@@ -683,10 +690,10 @@ public class QueryManager {
 		payment.setSubCosId(subcosid);
 		payment.setTriggerMsisdn(triggermsisdn);
 		payment.setVendorId(vendorId);
-		
+
 		create(payment);
 	}
-	
+
 	/**
 	 * Fetch {@link IBorrow} by subscriber, principal and time-stamp properties.
 	 *
@@ -697,29 +704,29 @@ public class QueryManager {
 	 */
 	public IBorrow getBorrowBySubscriberAndPrincipalAndTimeStamp(String msisdn, 
 			BigDecimal principal, Timestamp receivedTimestamp){
-		
+
 		CriteriaQuery<IBorrow> criteriaQuery = criteriaBuilder.createQuery(IBorrow.class);
 		Root<IBorrow> root = criteriaQuery.from(IBorrow.class);
-		
+
 		Predicate predicate = criteriaBuilder.and(
 				criteriaBuilder.equal(root.get(IBorrow_.principal), principal), 
 				criteriaBuilder.equal(root.get(IBorrow_.receivedTimestamp), receivedTimestamp), 
 				criteriaBuilder.equal(root.get(IBorrow_.msisdn), msisdn)
 				);
-		
+
 		criteriaQuery.select(root);
 		criteriaQuery.where(predicate);
-		
+
 		try {
 			return entityManager.createQuery(criteriaQuery).getSingleResult();
 		} catch (Exception e) {
 			// TODO Auto-generated catch block
 			log.error("No Borrow was found for subscriber:" + msisdn + " with principal:" + principal + " and receivedTimestamp:" + receivedTimestamp);
 		}
-		
+
 		return null;
 	}
-	
+
 	/**
 	 * Fetch {@link Payment} by subscriber, amount and time-stamp properties.
 	 *
@@ -730,26 +737,26 @@ public class QueryManager {
 	@Lock(LockType.WRITE)
 	public IPayment getPaymentByBorrowAndTimestamp(String msisdn, 
 			Timestamp timestamp){
-		
+
 		CriteriaQuery<IPayment> criteriaQuery = criteriaBuilder.createQuery(IPayment.class);
 		Root<IPayment> root = criteriaQuery.from(IPayment.class);
-		
+
 		criteriaQuery.select(root);
 		criteriaQuery.where(criteriaBuilder.and(
 				criteriaBuilder.equal(root.get(IPayment_.rechargeTime), timestamp), 
 				criteriaBuilder.equal(root.get(IPayment_.msisdn), msisdn)
 				));
-		
+
 		try {
 			return entityManager.createQuery(criteriaQuery).getSingleResult();
 		} catch (Exception e) {
 			// TODO Auto-generated catch block
 			log.error("No payment was found for msisdn:" + msisdn + " with rechargeTime:" + timestamp);
 		}
-		
+
 		return null;
 	}
-	
+
 	/**
 	 * Persist entity and add entity instance to {@link EntityManager}.
 	 * 
@@ -769,7 +776,7 @@ public class QueryManager {
 		}
 		return null;
 	}
-	
+
 	/**
 	 * Merge the state of the given entity into the current {@link PersistenceContext}.
 	 * 
@@ -789,7 +796,7 @@ public class QueryManager {
 
 		return null;
 	}
-	
+
 	/**
 	 * Change MSISDN to uniform database format.
 	 *
@@ -797,17 +804,210 @@ public class QueryManager {
 	 * @return formatted MSISDN
 	 */
 	public String formatMisisdn(String msisdn){
-		
+
 		if (msisdn.startsWith("234"))
 			msisdn = "0" + msisdn.substring(3, msisdn.length());
-		
+
 		if (msisdn.startsWith("+234"))
 			msisdn = "0" + msisdn.substring(4, msisdn.length());
-		
+
 		if (!msisdn.startsWith("0"))
 			msisdn = "0" + msisdn;
-		
+
 		return msisdn;
+	}
+
+	/**
+	 * Fetch Dealing by MSISDN, operationTime and operationType properties.
+	 * 
+	 * @param msisdn
+	 * @param timestamp
+	 * @param operationType
+	 * @return {@link Dealing}
+	 */
+	public Dealing getDealingByMSISDNAndOperationTimeAndOperationType(String msisdn, Timestamp timestamp,
+			OperationType operationType) {
+		// TODO Auto-generated method stub
+
+		CriteriaQuery<Dealing> criteriaQuery = criteriaBuilder.createQuery(Dealing.class);
+		Root<Dealing> root = criteriaQuery.from(Dealing.class);
+
+		criteriaQuery.select(root);
+		criteriaQuery.where(criteriaBuilder.and(
+				criteriaBuilder.equal(root.get(Dealing_.msisdn), msisdn),
+				criteriaBuilder.equal(root.get(Dealing_.operationTime), timestamp), 
+				criteriaBuilder.equal(root.get(Dealing_.operationType), operationType)
+				));
+
+		try {
+			return entityManager.createQuery(criteriaQuery).getSingleResult();
+		} catch (Exception e) {
+			// TODO Auto-generated catch block
+			log.warn("No Dealing instance found for msisdn:" + msisdn + " timestamp:" + timestamp + " and operationType" + operationType);
+		}
+
+		return null;
+	}
+
+	/**
+	 * Fetch OtherDealing by MSISDN, operationTime and operationType properties.
+	 * 
+	 * @param msisdn
+	 * @param timestamp
+	 * @param operationType
+	 * @return {@link OtherDealing}
+	 */
+	public OtherDealing getOtherDealingByMSISDNAndOperationTimeAndOperationType(String msisdn, Timestamp timestamp,
+			OperationType operationType) {
+		// TODO Auto-generated method stub
+
+		CriteriaQuery<OtherDealing> criteriaQuery = criteriaBuilder.createQuery(OtherDealing.class);
+		Root<OtherDealing> root = criteriaQuery.from(OtherDealing.class);
+
+		criteriaQuery.select(root);
+		criteriaQuery.where(criteriaBuilder.and(
+				criteriaBuilder.equal(root.get(OtherDealing_.msisdn), msisdn),
+				criteriaBuilder.equal(root.get(OtherDealing_.operationTime), timestamp), 
+				criteriaBuilder.equal(root.get(OtherDealing_.operationType), operationType)
+				));
+
+		try {
+			return entityManager.createQuery(criteriaQuery).getSingleResult();
+		} catch (Exception e) {
+			// TODO Auto-generated catch block
+			log.warn("No OtherDealing instance found for msisdn:" + msisdn + " timestamp:" + timestamp + " and operationType" + operationType);
+		}
+
+		return null;
+	}
+
+	/**
+	 * Create new Dealing instance.
+	 * 
+	 * @param balanceType
+	 * @param changeBalance
+	 * @param currentBalance
+	 * @param entryDate
+	 * @param etuAmount
+	 * @param etuGraceDate
+	 * @param forceRepayDate
+	 * @param initialEtuAmount
+	 * @param initialLoanAmount
+	 * @param initialLoanPoundage
+	 * @param loanAmount
+	 * @param loanBalanceType
+	 * @param loanPoundage
+	 * @param loanVendorId
+	 * @param msisdn
+	 * @param offering
+	 * @param operationType
+	 * @param queryManager
+	 * @param repayment
+	 * @param repayPoundage
+	 * @param subid
+	 * @param timestamp
+	 * @param transid
+	 * @return {@link Dealing}
+	 */
+	@TransactionAttribute(TransactionAttributeType.REQUIRES_NEW)
+	public Dealing persistDealing(long balanceType, BigDecimal changeBalance,
+			BigDecimal currentBalance, Timestamp entryDate, BigDecimal etuAmount, Timestamp etuGraceDate,
+			Timestamp forceRepayDate, BigDecimal initialEtuAmount, BigDecimal initialLoanAmount,
+			BigDecimal initialLoanPoundage, BigDecimal loanAmount, long loanBalanceType, BigDecimal loanPoundage,
+			String loanVendorId, String msisdn, String offering, OperationType operationType, QueryManager queryManager,
+			BigDecimal repayment, BigDecimal repayPoundage, long subid, Timestamp timestamp, long transid) {
+		// TODO Auto-generated method stub
+
+		DealType dealType = operationType.equals(OperationType.LOAN) ? DealType.CREDIT : DealType.DEBIT ;
+
+		Dealing dealing = new Dealing();
+		dealing.setAccountBook(loanBalanceType);
+		dealing.setBalanceType(balanceType);
+		dealing.setChangeBalance(changeBalance);
+		dealing.setCharge(initialLoanPoundage);
+		dealing.setChargePayment(repayPoundage);
+		dealing.setCurrentBalance(currentBalance);
+		dealing.setDealType(dealType);
+		dealing.setEtuDate(etuGraceDate);
+		dealing.setExpiryDate(forceRepayDate);
+		dealing.setGenerationTimestamp(entryDate);
+		dealing.setInitEtuAmount(initialEtuAmount);
+		dealing.setLoanAmount(initialLoanAmount);
+		dealing.setMsisdn(msisdn);
+		dealing.setOfferingCode(offering);
+		dealing.setOperationTime(timestamp);
+		dealing.setOperationType(operationType);
+		dealing.setPaymentAmount(repayment);
+		dealing.setPendingBalance(loanAmount);
+		dealing.setPendingCharge(loanPoundage);
+		dealing.setReferenceNo(transid);
+		dealing.setSubscriberId(subid);
+		dealing.setTimestamp(Timestamp.valueOf(LocalDateTime.now()));
+		dealing.setVendorid(loanVendorId);
+
+		return (Dealing) create(dealing);
+	}
+
+	/**
+	 * Create new OtherDealing instance.
+	 * 
+	 * @param balanceType
+	 * @param changeBalance
+	 * @param currentBalance
+	 * @param entryDate
+	 * @param etuAmount
+	 * @param etuGraceDate
+	 * @param forceRepayDate
+	 * @param initialEtuAmount
+	 * @param initialLoanAmount
+	 * @param initialLoanPoundage
+	 * @param loanAmount
+	 * @param loanBalanceType
+	 * @param loanPoundage
+	 * @param loanVendorId
+	 * @param msisdn
+	 * @param offering
+	 * @param operationType
+	 * @param queryManager
+	 * @param repayment
+	 * @param repayPoundage
+	 * @param subid
+	 * @param timestamp
+	 * @param transid
+	 */
+	@Asynchronous
+	public void persistOtherDealing(long balanceType, BigDecimal changeBalance, BigDecimal currentBalance,
+			Timestamp entryDate, BigDecimal etuAmount, Timestamp etuGraceDate, Timestamp forceRepayDate,
+			BigDecimal initialEtuAmount, BigDecimal initialLoanAmount, BigDecimal initialLoanPoundage,
+			BigDecimal loanAmount, long loanBalanceType, BigDecimal loanPoundage, String loanVendorId, String msisdn,
+			String offering, OperationType operationType, QueryManager queryManager, BigDecimal repayment,
+			BigDecimal repayPoundage, long subid, Timestamp timestamp, long transid) {
+		// TODO Auto-generated method stub
+
+		OtherDealing dealing = new OtherDealing();
+		dealing.setAccountBook(loanBalanceType);
+		dealing.setBalanceType(balanceType);
+		dealing.setChangeBalance(changeBalance);
+		dealing.setCharge(initialLoanPoundage);
+		dealing.setChargePayment(repayPoundage);
+		dealing.setCurrentBalance(currentBalance);
+		dealing.setEtuDate(etuGraceDate);
+		dealing.setExpiryDate(forceRepayDate);
+		dealing.setGenerationTimestamp(entryDate);
+		dealing.setInitEtuAmount(initialEtuAmount);
+		dealing.setLoanAmount(initialLoanAmount);
+		dealing.setMsisdn(msisdn);
+		dealing.setOfferingCode(offering);
+		dealing.setOperationType(operationType);
+		dealing.setPaymentAmount(repayment);
+		dealing.setPendingBalance(loanAmount);
+		dealing.setPendingCharge(loanPoundage);
+		dealing.setReferenceNo(transid);
+		dealing.setSubscriberId(subid);
+		dealing.setTimestamp(Timestamp.valueOf(LocalDateTime.now()));
+		dealing.setVendorid(loanVendorId);
+
+		create(dealing);
 	}
 
 }

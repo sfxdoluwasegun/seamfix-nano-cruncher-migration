@@ -12,6 +12,7 @@ import javax.inject.Inject;
 import org.jboss.logging.Logger;
 
 import com.nano.jpa.entity.Borrow;
+import com.nano.jpa.entity.Dealing;
 import com.nano.jpa.entity.Loan;
 import com.nano.jpa.entity.Nano;
 import com.nano.jpa.entity.SercomNotification;
@@ -56,7 +57,7 @@ public class NotificationManager {
 	/**
 	 * Send notification to SERCOM on loan request/query status.
 	 * 
-	 * @param borrow - details of loan
+	 * @param subscriber - details of subscriber
 	 * @param nano - NANO merchant detail
 	 * @param sercomStandardResp - enumeration containing standard response properties
 	 * @param paymentRef - payment reference from EVC
@@ -68,13 +69,13 @@ public class NotificationManager {
 	 * @param returnmode - transaction medium
 	 */
 	@Asynchronous
-	public void doSercomRevert(Borrow borrow, 
+	public void doSercomRevert(Subscriber subscriber, 
 			Nano nano, SercomStandardResp sercomStandardResp, 
 			String paymentRef, String amountdebited, String outstandingDebt, 
 			long notificationpk, String referenceNo, EventType eventType, ReturnMode returnmode){
 
 		AlternateRespPojo response = sercom.revertSubscribersRepayment(nano.getVendorId(), 
-				borrow.getSubscriber(), sercomStandardResp, 
+				subscriber, sercomStandardResp, 
 				amountdebited, outstandingDebt, referenceNo, eventType, returnmode);
 
 		if (response == null)

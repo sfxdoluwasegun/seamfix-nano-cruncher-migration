@@ -81,7 +81,7 @@
                     <ejbVersion>3.1</ejbVersion>
                     <archive>
 						<manifestEntries>
-							<Dependencies>deployment.freemarker-2.3.23.jar, deployment.commons-io-2.5.jar, deployment.javax.jms-api-2.0.jar, deployment.commons-lang-2.6.jar, deployment.nano-jpa-2.0.9-SNAPSHOT.jar, org.infinispan, org.infinispan.commons, org.jboss.as.clustering.infinispan</Dependencies>
+							<Dependencies>deployment.freemarker-2.3.23.jar, deployment.commons-io-2.5.jar, deployment.commons-lang-2.6.jar, deployment.nano-jpa-2.0.9-SNAPSHOT.jar, org.infinispan, org.infinispan.commons, org.jboss.as.clustering.infinispan</Dependencies>
 						</manifestEntries>
 					</archive>
                 </configuration>

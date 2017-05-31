@@ -11,8 +11,6 @@ import javax.inject.Inject;
 
 import org.jboss.logging.Logger;
 
-import com.nano.jpa.entity.Borrow;
-import com.nano.jpa.entity.Dealing;
 import com.nano.jpa.entity.Loan;
 import com.nano.jpa.entity.Nano;
 import com.nano.jpa.entity.SercomNotification;

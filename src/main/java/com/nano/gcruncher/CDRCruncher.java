@@ -26,6 +26,7 @@ import com.seamfix.nano.cache.InfinispanObjectBucket;
 import com.seamfix.nano.enums.SercomStandardResp;
 import com.seamfix.nano.jbeans.ApplicationBean;
 import com.seamfix.nano.jbeans.CDRbean;
+import com.seamfix.nano.tools.DbManager;
 import com.seamfix.nano.tools.MessageModel;
 import com.seamfix.nano.tools.NotificationManager;
 import com.seamfix.nano.tools.QueryManager;
@@ -42,6 +43,9 @@ public class CDRCruncher {
 	
 	@Inject
 	private QueryManager queryManager ;
+	
+	@Inject
+	private DbManager dbManager ;
 	
 	@Inject
 	private ApplicationBean appBean ;
@@ -101,7 +105,7 @@ public class CDRCruncher {
 	private void handleCDRLoading(CDRbean cdRbean) throws InterruptedException, ExecutionException {
 		// TODO Auto-generated method stub
 		
-		CDRDataThread cdrDataThread = new CDRDataThread(queryManager, appBean, cdRbean.getBalanceType(), cdRbean.getChangeBalance(), cdRbean.getCurrentBalance(), cdRbean.getEntryDate(), 
+		CDRDataThread cdrDataThread = new CDRDataThread(queryManager, dbManager, appBean, cdRbean.getBalanceType(), cdRbean.getChangeBalance(), cdRbean.getCurrentBalance(), cdRbean.getEntryDate(), 
 				cdRbean.getEtuAmount(), cdRbean.getEtuGraceDate(), cdRbean.getForceRepayDate(), cdRbean.getInitialEtuAmount(), cdRbean.getInitialLoanAmount(), cdRbean.getInitialLoanPoundage(), 
 				cdRbean.getLoanAmount(), cdRbean.getLoanBalanceType(), cdRbean.getLoanPoundage(), cdRbean.getLoanVendorId(), cdRbean.getMsisdn(), cdRbean.getOffering(), 
 				cdRbean.getOperationType(), cdRbean.getRepayment(), cdRbean.getRepayPoundage(), cdRbean.getSubid(), cdRbean.getTimestamp(), cdRbean.getTransid());

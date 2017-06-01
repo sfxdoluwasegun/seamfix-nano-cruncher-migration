@@ -4,16 +4,11 @@ import java.io.Serializable;
 
 import javax.xml.bind.annotation.XmlAccessType;
 import javax.xml.bind.annotation.XmlAccessorType;
+import javax.xml.bind.annotation.XmlElement;
 import javax.xml.bind.annotation.XmlRootElement;
 
 import com.nano.jpa.enums.EventType;
 import com.nano.jpa.enums.ReturnMode;
-
-/**
- * The Class PaymentNotification.
- *
- * @author segz
- */
 
 @SuppressWarnings("serial")
 @XmlRootElement(name = "request")
@@ -28,7 +23,11 @@ public class PaymentNotification implements Serializable {
 	private String statusCode ;
 	private String errorDescription ;
 	private String returnMode ;
+
+	@XmlElement(nillable = true)
 	private String transactionId ;
+	
+	@XmlElement(nillable = true)
 	private String eventType ;
 	
 	public PaymentNotification(){
@@ -63,7 +62,23 @@ public class PaymentNotification implements Serializable {
 		this.errorDescription = errorDescription;
 		this.returnMode = returnMode.getMode();
 		this.setTransactionId(transactionId);
-		this.setEventType(eventType.getEvent());
+		this.setEventType(eventType.getValue());
+	}
+	
+	@Override
+	public String toString() {
+		// TODO Auto-generated method stub
+		
+		return "amountdebited:" + this.amountdebited 
+				+ " creditgranted:" + this.creditgranted 
+				+ " eventType:" + this.eventType 
+				+ " msisdn:" + this.msisdn 
+				+ " outstandingdebt:" + this.outstandingdebt 
+				+ " returnMode:" + this.returnMode 
+				+ " statusCode:" + this.statusCode 
+				+ " statusDescription:" + this.errorDescription 
+				+ " transactionId:" + this.transactionId 
+				+ " vendorid:" + this.vendorid;
 	}
 
 	public String getMsisdn() {

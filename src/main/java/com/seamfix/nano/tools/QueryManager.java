@@ -9,7 +9,6 @@ import java.util.concurrent.TimeUnit;
 
 import javax.annotation.PostConstruct;
 import javax.ejb.AccessTimeout;
-import javax.ejb.Asynchronous;
 import javax.ejb.Lock;
 import javax.ejb.LockType;
 import javax.ejb.Singleton;
@@ -31,12 +30,8 @@ import com.nano.gcruncher.model.IPayment;
 import com.nano.gcruncher.model.IPayment_;
 import com.nano.jpa.entity.Borrow;
 import com.nano.jpa.entity.Borrow_;
-import com.nano.jpa.entity.Dealing;
-import com.nano.jpa.entity.Dealing_;
 import com.nano.jpa.entity.Nano;
 import com.nano.jpa.entity.Nano_;
-import com.nano.jpa.entity.OtherDealing;
-import com.nano.jpa.entity.OtherDealing_;
 import com.nano.jpa.entity.Payment;
 import com.nano.jpa.entity.Payment_;
 import com.nano.jpa.entity.Settings;
@@ -48,10 +43,11 @@ import com.nano.jpa.entity.Subscriber;
 import com.nano.jpa.entity.Subscriber_;
 import com.nano.jpa.entity.ras.BorrowableAmount;
 import com.nano.jpa.entity.ras.BorrowableAmount_;
-import com.nano.jpa.enums.DealType;
+import com.nano.jpa.entity.ras.SubscriberAssessment;
+import com.nano.jpa.entity.ras.SubscriberAssessment_;
 import com.nano.jpa.enums.Merchant;
 import com.nano.jpa.enums.MerchantData;
-import com.nano.jpa.enums.OperationType;
+import com.nano.jpa.enums.PayType;
 import com.nano.jpa.enums.PaymentStatus;
 import com.nano.jpa.enums.ReturnMode;
 import com.nano.jpa.enums.SettingType;
@@ -816,198 +812,58 @@ public class QueryManager {
 
 		return msisdn;
 	}
-
+	
 	/**
-	 * Fetch Dealing by MSISDN, operationTime and operationType properties.
+	 * Fetch SubscriberAssessment by {@link Subscriber}.
 	 * 
-	 * @param msisdn
-	 * @param timestamp
-	 * @param operationType
-	 * @return {@link Dealing}
+	 * @param subscriber
+	 * @return {@link SubscriberAssessment}
 	 */
-	public Dealing getDealingByMSISDNAndOperationTimeAndOperationType(String msisdn, Timestamp timestamp,
-			OperationType operationType) {
+	public SubscriberAssessment getSubscriberAssessmentBySubscriber(Subscriber subscriber) {
 		// TODO Auto-generated method stub
 
-		CriteriaQuery<Dealing> criteriaQuery = criteriaBuilder.createQuery(Dealing.class);
-		Root<Dealing> root = criteriaQuery.from(Dealing.class);
+		CriteriaQuery<SubscriberAssessment> criteriaQuery = criteriaBuilder.createQuery(SubscriberAssessment.class);
+		Root<SubscriberAssessment> root = criteriaQuery.from(SubscriberAssessment.class);
 
 		criteriaQuery.select(root);
-		criteriaQuery.where(criteriaBuilder.and(
-				criteriaBuilder.equal(root.get(Dealing_.msisdn), msisdn),
-				criteriaBuilder.equal(root.get(Dealing_.operationTime), timestamp), 
-				criteriaBuilder.equal(root.get(Dealing_.operationType), operationType)
-				));
+		criteriaQuery.where(criteriaBuilder.equal(root.get(SubscriberAssessment_.subscriber), subscriber));
 
 		try {
 			return entityManager.createQuery(criteriaQuery).getSingleResult();
 		} catch (Exception e) {
 			// TODO Auto-generated catch block
-			log.warn("No Dealing instance found for msisdn:" + msisdn + " timestamp:" + timestamp + " and operationType" + operationType);
+			log.error("No subscriberAssessment instance found for subscriber:" + subscriber.getPk());
 		}
 
 		return null;
 	}
-
+	
 	/**
-	 * Fetch OtherDealing by MSISDN, operationTime and operationType properties.
+	 * Create a fresh SubscriberAssessment.
 	 * 
-	 * @param msisdn
-	 * @param timestamp
-	 * @param operationType
-	 * @return {@link OtherDealing}
-	 */
-	public OtherDealing getOtherDealingByMSISDNAndOperationTimeAndOperationType(String msisdn, Timestamp timestamp,
-			OperationType operationType) {
-		// TODO Auto-generated method stub
-
-		CriteriaQuery<OtherDealing> criteriaQuery = criteriaBuilder.createQuery(OtherDealing.class);
-		Root<OtherDealing> root = criteriaQuery.from(OtherDealing.class);
-
-		criteriaQuery.select(root);
-		criteriaQuery.where(criteriaBuilder.and(
-				criteriaBuilder.equal(root.get(OtherDealing_.msisdn), msisdn),
-				criteriaBuilder.equal(root.get(OtherDealing_.operationTime), timestamp), 
-				criteriaBuilder.equal(root.get(OtherDealing_.operationType), operationType)
-				));
-
-		try {
-			return entityManager.createQuery(criteriaQuery).getSingleResult();
-		} catch (Exception e) {
-			// TODO Auto-generated catch block
-			log.warn("No OtherDealing instance found for msisdn:" + msisdn + " timestamp:" + timestamp + " and operationType" + operationType);
-		}
-
-		return null;
-	}
-
-	/**
-	 * Create new Dealing instance.
-	 * 
-	 * @param balanceType
-	 * @param changeBalance
-	 * @param currentBalance
-	 * @param entryDate
-	 * @param etuAmount
-	 * @param etuGraceDate
-	 * @param forceRepayDate
-	 * @param initialEtuAmount
-	 * @param initialLoanAmount
-	 * @param initialLoanPoundage
-	 * @param loanAmount
-	 * @param loanBalanceType
-	 * @param loanPoundage
-	 * @param loanVendorId
-	 * @param msisdn
-	 * @param offering
-	 * @param operationType
-	 * @param queryManager
-	 * @param repayment
-	 * @param repayPoundage
-	 * @param subid
-	 * @param timestamp
-	 * @param transid
-	 * @return {@link Dealing}
+	 * @param subscriber
+	 * @param subscriberState
+	 * @return {@link SubscriberAssessment}
 	 */
 	@TransactionAttribute(TransactionAttributeType.REQUIRES_NEW)
-	public Dealing persistDealing(long balanceType, BigDecimal changeBalance,
-			BigDecimal currentBalance, Timestamp entryDate, BigDecimal etuAmount, Timestamp etuGraceDate,
-			Timestamp forceRepayDate, BigDecimal initialEtuAmount, BigDecimal initialLoanAmount,
-			BigDecimal initialLoanPoundage, BigDecimal loanAmount, long loanBalanceType, BigDecimal loanPoundage,
-			String loanVendorId, String msisdn, String offering, OperationType operationType, QueryManager queryManager,
-			BigDecimal repayment, BigDecimal repayPoundage, long subid, Timestamp timestamp, long transid) {
-		// TODO Auto-generated method stub
+	public SubscriberAssessment createNewAssessment(Subscriber subscriber){
 
-		DealType dealType = operationType.equals(OperationType.LOAN) ? DealType.CREDIT : DealType.DEBIT ;
+		SubscriberAssessment subscriberAssessment = getSubscriberAssessmentBySubscriber(subscriber);
+		if (subscriberAssessment != null)
+			return subscriberAssessment;
 
-		Dealing dealing = new Dealing();
-		dealing.setAccountBook(loanBalanceType);
-		dealing.setBalanceType(balanceType);
-		dealing.setChangeBalance(changeBalance);
-		dealing.setCharge(initialLoanPoundage);
-		dealing.setChargePayment(repayPoundage);
-		dealing.setCurrentBalance(currentBalance);
-		dealing.setDealType(dealType);
-		dealing.setEtuDate(etuGraceDate);
-		dealing.setExpiryDate(forceRepayDate);
-		dealing.setGenerationTimestamp(entryDate);
-		dealing.setInitEtuAmount(initialEtuAmount);
-		dealing.setLoanAmount(initialLoanAmount);
-		dealing.setMsisdn(msisdn);
-		dealing.setOfferingCode(offering);
-		dealing.setOperationTime(timestamp);
-		dealing.setOperationType(operationType);
-		dealing.setPaymentAmount(repayment);
-		dealing.setPendingBalance(loanAmount);
-		dealing.setPendingCharge(loanPoundage);
-		dealing.setReferenceNo(transid);
-		dealing.setSubscriberId(subid);
-		dealing.setTimestamp(Timestamp.valueOf(LocalDateTime.now()));
-		dealing.setVendorid(loanVendorId);
+		subscriberAssessment = new SubscriberAssessment();
+		subscriberAssessment.setAgeOnNetwork(0);
+		subscriberAssessment.setInDebt(subscriber.isInDebt());
+		subscriberAssessment.setLastProcessed(Timestamp.valueOf(LocalDateTime.now()));
+		subscriberAssessment.setNumberOfTopUps(0);
+		subscriberAssessment.setSubscriber(subscriber);
+		subscriberAssessment.setTopUpDuration(0);
+		subscriberAssessment.setTopUpValueDuration(0);
+		subscriberAssessment.setTotalTopUpValue(0);
+		subscriberAssessment.setTariffPlan(PayType.PREPAID);
 
-		return (Dealing) create(dealing);
-	}
-
-	/**
-	 * Create new OtherDealing instance.
-	 * 
-	 * @param balanceType
-	 * @param changeBalance
-	 * @param currentBalance
-	 * @param entryDate
-	 * @param etuAmount
-	 * @param etuGraceDate
-	 * @param forceRepayDate
-	 * @param initialEtuAmount
-	 * @param initialLoanAmount
-	 * @param initialLoanPoundage
-	 * @param loanAmount
-	 * @param loanBalanceType
-	 * @param loanPoundage
-	 * @param loanVendorId
-	 * @param msisdn
-	 * @param offering
-	 * @param operationType
-	 * @param queryManager
-	 * @param repayment
-	 * @param repayPoundage
-	 * @param subid
-	 * @param timestamp
-	 * @param transid
-	 */
-	@Asynchronous
-	public void persistOtherDealing(long balanceType, BigDecimal changeBalance, BigDecimal currentBalance,
-			Timestamp entryDate, BigDecimal etuAmount, Timestamp etuGraceDate, Timestamp forceRepayDate,
-			BigDecimal initialEtuAmount, BigDecimal initialLoanAmount, BigDecimal initialLoanPoundage,
-			BigDecimal loanAmount, long loanBalanceType, BigDecimal loanPoundage, String loanVendorId, String msisdn,
-			String offering, OperationType operationType, QueryManager queryManager, BigDecimal repayment,
-			BigDecimal repayPoundage, long subid, Timestamp timestamp, long transid) {
-		// TODO Auto-generated method stub
-
-		OtherDealing dealing = new OtherDealing();
-		dealing.setAccountBook(loanBalanceType);
-		dealing.setBalanceType(balanceType);
-		dealing.setChangeBalance(changeBalance);
-		dealing.setCharge(initialLoanPoundage);
-		dealing.setChargePayment(repayPoundage);
-		dealing.setCurrentBalance(currentBalance);
-		dealing.setEtuDate(etuGraceDate);
-		dealing.setExpiryDate(forceRepayDate);
-		dealing.setGenerationTimestamp(entryDate);
-		dealing.setInitEtuAmount(initialEtuAmount);
-		dealing.setLoanAmount(initialLoanAmount);
-		dealing.setMsisdn(msisdn);
-		dealing.setOfferingCode(offering);
-		dealing.setOperationType(operationType);
-		dealing.setPaymentAmount(repayment);
-		dealing.setPendingBalance(loanAmount);
-		dealing.setPendingCharge(loanPoundage);
-		dealing.setReferenceNo(transid);
-		dealing.setSubscriberId(subid);
-		dealing.setTimestamp(Timestamp.valueOf(LocalDateTime.now()));
-		dealing.setVendorid(loanVendorId);
-
-		create(dealing);
+		return (SubscriberAssessment) create(subscriberAssessment);
 	}
 
 }

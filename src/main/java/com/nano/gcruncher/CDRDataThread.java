@@ -11,12 +11,14 @@ import org.jboss.logging.Logger;
 
 import com.nano.jpa.entity.Dealing;
 import com.nano.jpa.entity.Subscriber;
+import com.nano.jpa.entity.ras.SubscriberAssessment;
 import com.nano.jpa.enums.EventType;
 import com.nano.jpa.enums.OperationType;
 import com.nano.jpa.enums.ReturnMode;
 import com.seamfix.nano.enums.SercomStandardResp;
 import com.seamfix.nano.enums.SmppResponse;
 import com.seamfix.nano.jbeans.ApplicationBean;
+import com.seamfix.nano.tools.DbManager;
 import com.seamfix.nano.tools.MessageModel;
 import com.seamfix.nano.tools.QueryManager;
 
@@ -40,6 +42,7 @@ public class CDRDataThread implements Callable<Map<String, Object>> {
 	
 	private OperationType operationType ;
 	private QueryManager queryManager ;
+	private DbManager dbManager ;
 	private ApplicationBean appBean ;
 	
 	private BigDecimal initialLoanAmount ;
@@ -53,7 +56,7 @@ public class CDRDataThread implements Callable<Map<String, Object>> {
 	private BigDecimal currentBalance ;
 	private BigDecimal changeBalance ;
 
-	public CDRDataThread(QueryManager queryManager, ApplicationBean appBean, long balanceType, BigDecimal changeBalance, BigDecimal currentBalance, Timestamp entryDate,
+	public CDRDataThread(QueryManager queryManager, DbManager dbManager, ApplicationBean appBean, long balanceType, BigDecimal changeBalance, BigDecimal currentBalance, Timestamp entryDate,
 			BigDecimal etuAmount, Timestamp etuGraceDate, Timestamp forceRepayDate, BigDecimal initialEtuAmount,
 			BigDecimal initialLoanAmount, BigDecimal initialLoanPoundage, BigDecimal loanAmount,
 			long loanBalanceType, BigDecimal loanPoundage, String loanVendorId, String msisdn, String offering,
@@ -93,7 +96,7 @@ public class CDRDataThread implements Callable<Map<String, Object>> {
 		
 		Subscriber subscriber = queryManager.createSubscriber(msisdn);
 		
-		if (queryManager.getDealingByMSISDNAndOperationTimeAndOperationType(msisdn, timestamp, operationType) != null)
+		if (dbManager.getDealingByMSISDNAndOperationTimeAndOperationType(msisdn, timestamp, operationType) != null)
 			return null;
 		
 		if (appBean.getVendorid().equalsIgnoreCase(loanVendorId))
@@ -105,13 +108,13 @@ public class CDRDataThread implements Callable<Map<String, Object>> {
 	private Map<String, Object> persistNONNanoDeal() {
 		// TODO Auto-generated method stub
 		
-		if (queryManager.getOtherDealingByMSISDNAndOperationTimeAndOperationType(msisdn, timestamp, operationType) != null)
+		if (dbManager.getOtherDealingByMSISDNAndOperationTimeAndOperationType(msisdn, timestamp, operationType) != null)
 			return null;
 		
 		StopWatch stopWatch = new StopWatch();
 		stopWatch.start();
 		
-		queryManager.persistOtherDealing(balanceType, changeBalance, currentBalance, entryDate, etuAmount, 
+		dbManager.persistOtherDealing(balanceType, changeBalance, currentBalance, entryDate, etuAmount, 
 				etuGraceDate, forceRepayDate, initialEtuAmount, initialLoanAmount, initialLoanPoundage, loanAmount, loanBalanceType, 
 				loanPoundage, loanVendorId, msisdn, offering, operationType, queryManager, repayment, repayPoundage, 
 				subid, timestamp, transid);
@@ -128,7 +131,7 @@ public class CDRDataThread implements Callable<Map<String, Object>> {
 		StopWatch stopWatch = new StopWatch();
 		stopWatch.start();
 		
-		Dealing dealing = queryManager.persistDealing(balanceType, changeBalance, currentBalance, entryDate, etuAmount, 
+		Dealing dealing = dbManager.persistDealing(balanceType, changeBalance, currentBalance, entryDate, etuAmount, 
 				etuGraceDate, forceRepayDate, initialEtuAmount, initialLoanAmount, initialLoanPoundage, loanAmount, loanBalanceType, 
 				loanPoundage, loanVendorId, msisdn, offering, operationType, queryManager, repayment, repayPoundage, 
 				subid, timestamp, transid);
@@ -171,6 +174,13 @@ public class CDRDataThread implements Callable<Map<String, Object>> {
 			response.put("eventType", EventType.PARTIAL);
 		}
 		
+		SubscriberAssessment subscriberAssessment = queryManager.getSubscriberAssessmentBySubscriber(subscriber);
+		if (subscriberAssessment != null){
+			BigDecimal creditStatus = subscriberAssessment.getCreditStatus();
+			subscriberAssessment.setCreditStatus(creditStatus.add(repayment));
+			queryManager.update(subscriberAssessment);
+		}
+		
 		messageModel.setModel(model);
 
 		String paymentRef = new StringBuilder(msisdn).append("^").append(timestamp.getTime()).toString();
@@ -184,7 +194,7 @@ public class CDRDataThread implements Callable<Map<String, Object>> {
 		response.put("sercomResponse", SercomStandardResp.SUCCESS);
 		response.put("amountdebited", amountdebited);
 		response.put("outstandingDebt", outstandingDebt);
-		response.put("referenceNo", dealing.getReferenceNo());
+		response.put("referenceNo", subscriberAssessment.getLoanRef() != null ? subscriberAssessment.getLoanRef() : dealing.getReferenceNo());
 		response.put("returnMode", operationType.equals(OperationType.REPAYMENT) ? ReturnMode.RECHARGE : ReturnMode.TRANSFER);
 		
 		return response;

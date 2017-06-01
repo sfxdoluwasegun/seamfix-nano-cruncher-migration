@@ -110,11 +110,12 @@ public class CDRCruncher {
 				cdRbean.getLoanAmount(), cdRbean.getLoanBalanceType(), cdRbean.getLoanPoundage(), cdRbean.getLoanVendorId(), cdRbean.getMsisdn(), cdRbean.getOffering(), 
 				cdRbean.getOperationType(), cdRbean.getRepayment(), cdRbean.getRepayPoundage(), cdRbean.getSubid(), cdRbean.getTimestamp(), cdRbean.getTransid());
 		
-		Future<Map<String, Object>> job2 = managedExecutorService.submit(cdrDataThread);
-		Map<String, Object> response = job2.get();
+		Future<Map<String, Object>> job = managedExecutorService.submit(cdrDataThread);
 		
-		if (response == null)
+		if (job == null || job.get() == null)
 			return;
+		
+		Map<String, Object> response = job.get();
 		
 		try {
 			notificationManager.doSMPPRevert((Subscriber) response.get("subscriber"), null, (MessageModel) response.get("messageModel"), 

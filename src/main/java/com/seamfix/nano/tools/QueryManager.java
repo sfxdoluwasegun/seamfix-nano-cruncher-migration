@@ -109,6 +109,7 @@ public class QueryManager {
 	 * @param msisdn - subscriber MSISDN
 	 * @return {@link Subscriber}
 	 */
+	@Lock(LockType.WRITE)
 	@TransactionAttribute(TransactionAttributeType.REQUIRES_NEW)
 	public Subscriber createSubscriber(String msisdn){
 
@@ -331,6 +332,7 @@ public class QueryManager {
 	 * @param merchant - merchant for transaction
 	 * @return {@link Payment}
 	 */
+	@Lock(LockType.WRITE)
 	public Payment getPaymentBySubscriberAndAmountAndTimestamp(Subscriber subscriber, 
 			BigDecimal amountPaid, Timestamp timestamp, 
 			Merchant merchant){
@@ -577,6 +579,7 @@ public class QueryManager {
 	 * @param msisdn- subscriber MSISDN
 	 * @return {@link Subscriber}
 	 */
+	@Lock(LockType.WRITE)
 	public Subscriber getSubscriberByMsisdn(String msisdn){
 
 		CriteriaQuery<Subscriber> criteriaQuery = criteriaBuilder.createQuery(Subscriber.class);

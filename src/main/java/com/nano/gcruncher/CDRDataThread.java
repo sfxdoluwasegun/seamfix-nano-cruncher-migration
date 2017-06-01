@@ -68,6 +68,7 @@ public class CDRDataThread implements Callable<Map<String, Object>> {
 		this.balanceType = balanceType;
 		this.changeBalance = changeBalance;
 		this.currentBalance = currentBalance;
+		this.dbManager = dbManager;
 		this.entryDate = entryDate;
 		this.etuAmount = etuAmount;
 		this.etuGraceDate = etuGraceDate;
@@ -159,7 +160,7 @@ public class CDRDataThread implements Callable<Map<String, Object>> {
 		Map<String, Object> response = new HashMap<>();
 
 		if (loanAmount.compareTo(BigDecimal.ZERO) == 0){
-			model.put("amount", repayment);
+			model.put("amount", repayment.add(repayPoundage));
 			model.put("template", SmppResponse.FULLY_COVERED.getResponse());
 			
 			response.put("eventType", EventType.RECOVERY);
@@ -167,7 +168,7 @@ public class CDRDataThread implements Callable<Map<String, Object>> {
 			queryManager.clearSubscriberDebt(subscriber);
 			log.info("removing borrow transaction from cache for msisdn:" + msisdn);
 		}else{
-			model.put("amount", repayment);
+			model.put("amount", repayment.add(repayPoundage));
 			model.put("outstanding", loanAmount);
 			model.put("template", SmppResponse.PARTLY_COVERED.getResponse());
 			
@@ -177,7 +178,7 @@ public class CDRDataThread implements Callable<Map<String, Object>> {
 		SubscriberAssessment subscriberAssessment = queryManager.getSubscriberAssessmentBySubscriber(subscriber);
 		if (subscriberAssessment != null){
 			BigDecimal creditStatus = subscriberAssessment.getCreditStatus();
-			subscriberAssessment.setCreditStatus(creditStatus.add(repayment));
+			subscriberAssessment.setCreditStatus(creditStatus.add(repayment).add(repayPoundage));
 			queryManager.update(subscriberAssessment);
 		}
 		

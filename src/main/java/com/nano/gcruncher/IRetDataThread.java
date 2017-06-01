@@ -85,21 +85,19 @@ public class IRetDataThread implements Runnable {
 	public void run() {
 		// TODO Auto-generated method stub
 		
-		Subscriber subscriber = queryManager.createSubscriber(msisdn);
+		//Subscriber subscriber = queryManager.createSubscriber(msisdn);
 		
 		if (queryManager.getPaymentByBorrowAndTimestamp(msisdn, new Timestamp(timestamp)) != null)
 			return ;
 		
-		startRechargeDataLoading(subscriber, returnamount, borrowvaluesaf);
+		startRechargeDataLoading(returnamount, borrowvaluesaf);
 	}
 
-	private void startRechargeDataLoading(Subscriber subscriber, BigDecimal returnamount2, BigDecimal borrowvaluesaf2) {
+	private void startRechargeDataLoading(BigDecimal returnamount2, BigDecimal borrowvaluesaf2) {
 		// TODO Auto-generated method stub
 		
 		StopWatch stopWatch = new StopWatch();
 		stopWatch.start();
-		
-		String msisdn = subscriber.getMsisdn();
 		
 		ReturnMode returnMode = returnmode == 1 ? ReturnMode.RECHARGE : ReturnMode.TRANSFER;
 

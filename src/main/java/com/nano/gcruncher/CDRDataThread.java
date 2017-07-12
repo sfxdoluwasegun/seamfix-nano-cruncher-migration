@@ -2,6 +2,7 @@ package com.nano.gcruncher;
 
 import java.math.BigDecimal;
 import java.sql.Timestamp;
+import java.time.LocalDateTime;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.concurrent.Callable;
@@ -9,11 +10,14 @@ import java.util.concurrent.Callable;
 import org.apache.commons.lang.time.StopWatch;
 import org.jboss.logging.Logger;
 
+import com.nano.gcruncher.model.IBorrow;
+import com.nano.gcruncher.model.IPayment;
+import com.nano.jpa.entity.Borrow;
 import com.nano.jpa.entity.Dealing;
 import com.nano.jpa.entity.Subscriber;
-import com.nano.jpa.entity.ras.SubscriberAssessment;
 import com.nano.jpa.enums.EventType;
 import com.nano.jpa.enums.OperationType;
+import com.nano.jpa.enums.PaymentStatus;
 import com.nano.jpa.enums.ReturnMode;
 import com.seamfix.nano.enums.SercomStandardResp;
 import com.seamfix.nano.enums.SmppResponse;
@@ -34,6 +38,7 @@ public class CDRDataThread implements Callable<Map<String, Object>> {
 	private String msisdn ;
 	private String offering ;
 	private String loanVendorId ;
+	private String referenceNumber;
 	
 	private Timestamp timestamp ;
 	private Timestamp etuGraceDate ;
@@ -55,6 +60,8 @@ public class CDRDataThread implements Callable<Map<String, Object>> {
 	private BigDecimal etuAmount ;
 	private BigDecimal currentBalance ;
 	private BigDecimal changeBalance ;
+
+	private ReturnMode returnMode;
 
 	public CDRDataThread(QueryManager queryManager, DbManager dbManager, ApplicationBean appBean, long balanceType, BigDecimal changeBalance, BigDecimal currentBalance, Timestamp entryDate,
 			BigDecimal etuAmount, Timestamp etuGraceDate, Timestamp forceRepayDate, BigDecimal initialEtuAmount,
@@ -84,8 +91,10 @@ public class CDRDataThread implements Callable<Map<String, Object>> {
 		this.offering = offering;
 		this.operationType = operationType;
 		this.queryManager = queryManager;
+		this.referenceNumber = queryManager.retrieveLoanReferenceByMSISDN(msisdn, loanVendorId, timestamp, operationType);
 		this.repayment = repayment;
 		this.repayPoundage = repayPoundage;
+		this.returnMode = operationType.equals(OperationType.REPAYMENT) ? ReturnMode.RECHARGE : ReturnMode.TRANSFER;
 		this.subid = subid;
 		this.timestamp = timestamp;
 		this.transid = transid;
@@ -97,6 +106,11 @@ public class CDRDataThread implements Callable<Map<String, Object>> {
 		
 		Subscriber subscriber = queryManager.createSubscriber(msisdn);
 		
+		if (operationType.equals(OperationType.LOAN))
+			loadBorrowData();
+		else
+			loadPaymentDataWithReconcilliation();
+		
 		if (dbManager.getDealingByMSISDNAndOperationTimeAndOperationType(msisdn, timestamp, operationType) != null)
 			return null;
 		
@@ -106,6 +120,11 @@ public class CDRDataThread implements Callable<Map<String, Object>> {
 			return persistNONNanoDeal();
 	}
 
+	/**
+	 * Write CDR log for Non-NANO transaction to persistence.
+	 * 
+	 * @return null
+	 */
 	private Map<String, Object> persistNONNanoDeal() {
 		// TODO Auto-generated method stub
 		
@@ -126,6 +145,12 @@ public class CDRDataThread implements Callable<Map<String, Object>> {
 		return null;
 	}
 
+	/**
+	 * Write CDR log for NANO transaction to persistence.
+	 * 
+	 * @param subscriber
+	 * @return null
+	 */
 	private Map<String, Object> persistNanoDeal(Subscriber subscriber) {
 		// TODO Auto-generated method stub
 		
@@ -135,7 +160,7 @@ public class CDRDataThread implements Callable<Map<String, Object>> {
 		Dealing dealing = dbManager.persistDealing(balanceType, changeBalance, currentBalance, entryDate, etuAmount, 
 				etuGraceDate, forceRepayDate, initialEtuAmount, initialLoanAmount, initialLoanPoundage, loanAmount, loanBalanceType, 
 				loanPoundage, loanVendorId, msisdn, offering, operationType, queryManager, repayment, repayPoundage, 
-				subid, timestamp, transid);
+				subid, timestamp, transid, referenceNumber);
 		
 		if (operationType.equals(OperationType.REPAYMENT) 
 				|| operationType.equals(OperationType.TRANSFER) 
@@ -151,6 +176,13 @@ public class CDRDataThread implements Callable<Map<String, Object>> {
 		return null;
 	}
 
+	/**
+	 * Handle loan repayment.
+	 * 
+	 * @param subscriber
+	 * @param dealing
+	 * @return Map response containing details for Sercom/SMPP notifications
+	 */
 	private Map<String, Object> handleRepaymentPostProcessing(Subscriber subscriber, Dealing dealing) {
 		// TODO Auto-generated method stub
 		
@@ -175,13 +207,6 @@ public class CDRDataThread implements Callable<Map<String, Object>> {
 			response.put("eventType", EventType.PARTIAL);
 		}
 		
-		SubscriberAssessment subscriberAssessment = queryManager.getSubscriberAssessmentBySubscriber(subscriber);
-		if (subscriberAssessment != null){
-			BigDecimal creditStatus = subscriberAssessment.getCreditStatus();
-			subscriberAssessment.setCreditStatus(creditStatus.add(repayment).add(repayPoundage));
-			queryManager.update(subscriberAssessment);
-		}
-		
 		messageModel.setModel(model);
 
 		String paymentRef = new StringBuilder(msisdn).append("^").append(timestamp.getTime()).toString();
@@ -195,10 +220,88 @@ public class CDRDataThread implements Callable<Map<String, Object>> {
 		response.put("sercomResponse", SercomStandardResp.SUCCESS);
 		response.put("amountdebited", amountdebited);
 		response.put("outstandingDebt", outstandingDebt);
-		response.put("referenceNo", subscriberAssessment.getLoanRef() != null ? subscriberAssessment.getLoanRef() : dealing.getReferenceNo());
-		response.put("returnMode", operationType.equals(OperationType.REPAYMENT) ? ReturnMode.RECHARGE : ReturnMode.TRANSFER);
+		response.put("referenceNo", referenceNumber);
+		response.put("returnMode", returnMode);
 		
 		return response;
+	}
+	
+	/**
+	 * Handle borrow data loading.
+	 */
+	private void loadBorrowData() {
+		// TODO Auto-generated method stub
+		
+		BigDecimal ammountapproved = initialLoanAmount.add(initialLoanPoundage);
+
+		IBorrow borrow = new IBorrow();
+		borrow.setAmountApproved(ammountapproved);
+		borrow.setAmountOwedAfterBorrowed(ammountapproved);
+		borrow.setAmountOwedBeforeBorrow(BigDecimal.ZERO);
+		borrow.setAmountRequested(ammountapproved);
+		borrow.setBalanceAfterBorrow(currentBalance.add(changeBalance));
+		borrow.setBalanceBeforeBorrow(currentBalance);
+		borrow.setCharge(initialLoanPoundage);
+		borrow.setCurrentPendingBalance(ammountapproved);
+		borrow.setMsisdn(msisdn);
+		borrow.setPaymentStatus(PaymentStatus.NONE);
+		borrow.setPrincipal(initialLoanAmount);
+		borrow.setProcessedTimestamp(Timestamp.valueOf(LocalDateTime.now()));
+		borrow.setReceivedTimestamp(timestamp);
+		borrow.setRecoveredCharge(BigDecimal.ZERO);
+		borrow.setReferenceNo(referenceNumber);
+		borrow.setSubCosId(subid);
+		borrow.setVendorId(loanVendorId);
+
+		queryManager.create(borrow);
+	}
+	
+	/**
+	 * Handle payment data loading.
+	 */
+	private void loadPaymentDataWithReconcilliation() {
+		// TODO Auto-generated method stub
+		
+		IPayment payment = new IPayment();
+		payment.setAmountOwedAfterPayment(loanAmount);
+		payment.setAmountOwedBeforePayment(initialLoanAmount);
+		payment.setAmountPaid(changeBalance);
+		payment.setBalanceAfterPayment(currentBalance);
+		payment.setBalanceBeforePayment(currentBalance.add(changeBalance));
+		payment.setLoanPenaltyAfterPayment(etuAmount);
+		payment.setLoanPenaltyBeforePayment(initialEtuAmount);
+		payment.setMsisdn(msisdn);
+		payment.setProcessedTimestamp(Timestamp.valueOf(LocalDateTime.now()));
+		payment.setRechargeAmount(repayment);
+		payment.setRechargeTime(timestamp);
+		payment.setReferenceNo(referenceNumber);
+		payment.setReturnMode(returnMode);
+		payment.setSubCosId(subid);
+		payment.setTriggerMsisdn(msisdn);
+		payment.setVendorId(loanVendorId);
+
+		queryManager.create(payment);
+		doBorrowReconcilliation();
+	}
+
+	/**
+	 * Reconcile {@link Borrow} log.
+	 */
+	private void doBorrowReconcilliation() {
+		// TODO Auto-generated method stub
+		
+		IBorrow borrow = queryManager.getBorrowByReferenceNo(referenceNumber);
+		
+		if (borrow == null)
+			return;
+		
+		PaymentStatus paymentStatus = loanAmount.compareTo(BigDecimal.ZERO) < 1 ? PaymentStatus.COMPLETE : PaymentStatus.PARTIAL ;
+		
+		borrow.setCurrentPendingBalance(loanAmount);
+		borrow.setPaymentStatus(paymentStatus);
+		borrow.setRecoveredCharge(initialLoanAmount.subtract(loanAmount));
+		
+		queryManager.update(borrow);
 	}
 
 }

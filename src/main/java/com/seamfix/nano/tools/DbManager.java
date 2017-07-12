@@ -135,6 +135,7 @@ public class DbManager {
 	 * @param subid
 	 * @param timestamp
 	 * @param transid
+	 * @param referenceNumber 
 	 * @return {@link Dealing}
 	 */
 	@TransactionAttribute(TransactionAttributeType.REQUIRES_NEW)
@@ -143,7 +144,7 @@ public class DbManager {
 			Timestamp forceRepayDate, BigDecimal initialEtuAmount, BigDecimal initialLoanAmount,
 			BigDecimal initialLoanPoundage, BigDecimal loanAmount, long loanBalanceType, BigDecimal loanPoundage,
 			String loanVendorId, String msisdn, String offering, OperationType operationType, QueryManager queryManager,
-			BigDecimal repayment, BigDecimal repayPoundage, long subid, Timestamp timestamp, long transid) {
+			BigDecimal repayment, BigDecimal repayPoundage, long subid, Timestamp timestamp, long transid, String referenceNumber) {
 		// TODO Auto-generated method stub
 
 		DealType dealType = operationType.equals(OperationType.LOAN) ? DealType.CREDIT : DealType.DEBIT ;
@@ -168,9 +169,10 @@ public class DbManager {
 		dealing.setPaymentAmount(repayment);
 		dealing.setPendingBalance(loanAmount);
 		dealing.setPendingCharge(loanPoundage);
-		dealing.setReferenceNo(transid);
+		dealing.setReferenceNo(referenceNumber);
 		dealing.setSubscriberId(subid);
 		dealing.setTimestamp(Timestamp.valueOf(LocalDateTime.now()));
+		dealing.setTransactionId(transid);
 		dealing.setVendorid(loanVendorId);
 
 		return (Dealing) create(dealing);

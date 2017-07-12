@@ -1,22 +1,16 @@
 package com.nano.gcruncher;
 
-import java.io.File;
-import java.io.IOException;
 import java.math.BigDecimal;
-import java.nio.charset.StandardCharsets;
 import java.sql.Timestamp;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.time.format.DateTimeParseException;
 import java.util.concurrent.Callable;
 
-import org.apache.commons.io.FileUtils;
 import org.apache.commons.lang.time.StopWatch;
 import org.jboss.logging.Logger;
 
-import com.seamfix.nano.cache.InfinispanObjectBucket;
-import com.seamfix.nano.enums.OperationType;
-import com.seamfix.nano.jbeans.ApplicationBean;
+import com.nano.jpa.enums.OperationType;
 import com.seamfix.nano.jbeans.CDRbean;
 import com.seamfix.nano.tools.QueryManager;
 
@@ -27,23 +21,17 @@ public class CDRFileShredThread implements Callable<CDRbean> {
 	private String linedata ;
 
 	private QueryManager queryManager ;
-	private InfinispanObjectBucket cache ;
-	private ApplicationBean appBean ;
+	
 
 	/**
 	 * Initiate new CALLABLE thread instance.
 	 * 
 	 * @param queryManager - {@link QueryManager} singleton EJB
-	 * @param appBean - {@link ApplicationBean} singleton EJB
-	 * @param cache - {@link InfinispanObjectBucket} singleton EJB
 	 * @param linedata - CDR line transaction
 	 */
-	public CDRFileShredThread(QueryManager queryManager, ApplicationBean appBean, 
-			InfinispanObjectBucket cache, String linedata) {
+	public CDRFileShredThread(QueryManager queryManager, String linedata) {
 		// TODO Auto-generated constructor stub
 
-		this.appBean = appBean;
-		this.cache = cache;
 		this.linedata = linedata;
 		this.queryManager = queryManager;
 	}
@@ -64,36 +52,7 @@ public class CDRFileShredThread implements Callable<CDRbean> {
 
 		String msisdn = cdrdata[1];
 		String vendorid = (cdrdata[33] == null || cdrdata[33].isEmpty()) ? "" : cdrdata[33];
-		OperationType operationType = OperationType.fromCode(cdrdata[3]);
-
-		/*if (cache.getOutstandingTransactionFromCache(queryManager.formatMisisdn(msisdn.trim())) == null){
-			*//**
-			 * Subscriber is not on watch-list, however confirm if CDR vendor ID matches.
-			 * If vendor ID matches write transaction to list of 'exceptions' before quitting process.
-			 *//*
-			if (operationType.equals(OperationType.RECHARGE) || operationType.equals(OperationType.TRANSFER)){
-				if (!vendorid.isEmpty() && appBean.getVendorid().equalsIgnoreCase(vendorid))
-					writeTransactionToFile(filetxn, "com/nano/etls/exception_cdr/");
-			}
-			return null;
-		}
-
-		if (!vendorid.isEmpty() && !appBean.getVendorid().equalsIgnoreCase(vendorid)){
-			*//**
-			 * SUbscriber is on debtors watch-list but CDR vendor ID doesn't match.
-			 * Write file transaction to list of 'suspect' transactions and quit process.
-			 * Suspected transactions would have to be visited manually and treated as support issues.
-			 *//*
-			if (operationType.equals(OperationType.RECHARGE) || operationType.equals(OperationType.TRANSFER))
-				writeTransactionToFile(filetxn, "com/nano/etls/suspect_cdr/");
-			
-			return null;
-		}*/
-
-		/**
-		 * Subscriber is on watch-list and CDR vendor ID matches.
-		 * Transaction should be processed through.
-		 */
+		OperationType operationType = OperationType.fromName(cdrdata[3]);
 
 		StopWatch stopWatch = new StopWatch();
 		stopWatch.start();
@@ -118,15 +77,25 @@ public class CDRFileShredThread implements Callable<CDRbean> {
 		try {
 			LocalDateTime etuGrace = LocalDateTime.parse(cdrdata[11], DateTimeFormatter.ofPattern("yyyyMMddHHmmss"));
 			etuGraceDate = Timestamp.valueOf(etuGrace);
-			
-			LocalDateTime forceRepayment = LocalDateTime.parse(cdrdata[12], DateTimeFormatter.ofPattern("yyyyMMddHHmmss"));
-			forceRepaymentDate = Timestamp.valueOf(forceRepayment);
-			
-			LocalDateTime entry = LocalDateTime.parse(cdrdata[14], DateTimeFormatter.ofPattern("yyyyMMddHHmmss"));
-			entryDate = Timestamp.valueOf(entry);
 		} catch (DateTimeParseException e) {
 			// TODO Auto-generated catch block
 			log.error("DateTimePasreException:" + cdrdata[11]);
+		}
+		
+		try {
+			LocalDateTime forceRepayment = LocalDateTime.parse(cdrdata[12], DateTimeFormatter.ofPattern("yyyyMMddHHmmss"));
+			forceRepaymentDate = Timestamp.valueOf(forceRepayment);
+		} catch (Exception e) {
+			// TODO Auto-generated catch block
+			log.error("DateTimePasreException:" + cdrdata[12]);
+		}
+		
+		try {
+			LocalDateTime entry = LocalDateTime.parse(cdrdata[14], DateTimeFormatter.ofPattern("yyyyMMddHHmmss"));
+			entryDate = Timestamp.valueOf(entry);
+		} catch (Exception e) {
+			// TODO Auto-generated catch block
+			log.error("DateTimePasreException:" + cdrdata[14]);
 		}
 
 		long transid = (cdrdata[13] == null || cdrdata[13].isEmpty()) ? 0 : Long.parseLong(cdrdata[13]);
@@ -147,31 +116,6 @@ public class CDRFileShredThread implements Callable<CDRbean> {
 		return new CDRbean(subcriberId, queryManager.formatMisisdn(msisdn), operationTime, operationType, loanBalanceType, initialLoanAmount, 
 				serviceCharge, pendingLoan, pendingServiceCharge, amountPaid, recoverdServiceCharge, etuGraceDate, 
 				forceRepaymentDate, transid, entryDate, offering, initEtuAmount, etuAmount, balanceType, currentBalance, changeBalance, vendorid);
-	}
-
-	/**
-	 * Write payment information to {@link File} for quick audit purpose.
-	 * 
-	 * @param transaction - CDR line transaction
-	 */
-	private void writeTransactionToFile(String transaction, String path){
-
-		DateTimeFormatter dateTimeFormatter = DateTimeFormatter.ofPattern("yyyyMMddHHmmss");
-
-		String filename = new StringBuilder(path).append("cdr^")
-				.append(dateTimeFormatter.format(LocalDateTime.now())).append(".txt").toString();
-		File file = new File(filename);
-
-		try {
-			FileUtils.writeStringToFile(file, transaction, StandardCharsets.UTF_8, true);
-			log.info("writing payment details to file:" + filename);
-		} catch (IOException e) {
-			// TODO Auto-generated catch block
-			log.error("", e);
-		}
-
-		if (!file.exists())
-			log.error("Error creating payment file");
 	}
 
 }

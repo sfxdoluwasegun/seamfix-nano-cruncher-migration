@@ -58,7 +58,7 @@ public class IBorDataThread implements Runnable {
 	public void run() {
 		// TODO Auto-generated method stub
 		
-		queryManager.createSubscriber(msisdn);
+		//queryManager.createSubscriber(msisdn);
 
 		if (isBorrowCreated(msisdn, bfborrowvalues, timestamp))
 			return ;

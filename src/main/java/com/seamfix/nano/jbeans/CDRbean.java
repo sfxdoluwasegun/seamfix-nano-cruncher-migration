@@ -3,7 +3,7 @@ package com.seamfix.nano.jbeans;
 import java.math.BigDecimal;
 import java.sql.Timestamp;
 
-import com.seamfix.nano.enums.OperationType;
+import com.nano.jpa.enums.OperationType;
 
 public class CDRbean {
 	

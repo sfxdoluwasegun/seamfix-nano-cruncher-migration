@@ -29,4 +29,5 @@ public class IPayment_ extends IEntity_ {
 	public static volatile SingularAttribute<IPayment, Long> subCosId;
 	public static volatile SingularAttribute<IPayment, String> msisdn;
 	public static volatile SingularAttribute<IPayment, String> vendorId;
+	public static volatile SingularAttribute<IPayment, String> referenceNo;
 }

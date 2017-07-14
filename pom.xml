@@ -4,7 +4,7 @@
 
     <groupId>com.nano</groupId>
     <artifactId>nano-cruncher</artifactId>
-    <version>0.0.1-SNAPSHOT</version>
+    <version>0.0.2-SNAPSHOT</version>
     <packaging>ejb</packaging>
 
     <name>nano-cruncher</name>
@@ -45,7 +45,7 @@
         <dependency>
         	<groupId>com.nano.jpa</groupId>
         	<artifactId>nano-jpa</artifactId>
-        	<version>2.0.9-SNAPSHOT</version>
+        	<version>2.1.0-SNAPSHOT</version>
         </dependency>
         <dependency>
 			<groupId>commons-io</groupId>
@@ -81,7 +81,7 @@
                     <ejbVersion>3.1</ejbVersion>
                     <archive>
 						<manifestEntries>
-							<Dependencies>deployment.freemarker-2.3.23.jar, deployment.commons-io-2.5.jar, deployment.commons-lang-2.6.jar, deployment.nano-jpa-2.0.9-SNAPSHOT.jar, org.infinispan, org.infinispan.commons, org.jboss.as.clustering.infinispan</Dependencies>
+							<Dependencies>deployment.freemarker-2.3.23.jar, deployment.commons-io-2.5.jar, deployment.commons-lang-2.6.jar, deployment.nano-jpa-2.1.0-SNAPSHOT.jar, org.infinispan, org.infinispan.commons, org.jboss.as.clustering.infinispan</Dependencies>
 						</manifestEntries>
 					</archive>
                 </configuration>

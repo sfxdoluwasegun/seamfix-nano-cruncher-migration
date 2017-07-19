@@ -10,12 +10,12 @@ import java.util.concurrent.Callable;
 import org.apache.commons.lang.time.StopWatch;
 import org.jboss.logging.Logger;
 
-import com.nano.gcruncher.model.IBorrow;
-import com.nano.gcruncher.model.IPayment;
 import com.nano.jpa.entity.Borrow;
 import com.nano.jpa.entity.Dealing;
+import com.nano.jpa.entity.Payment;
 import com.nano.jpa.entity.Subscriber;
 import com.nano.jpa.enums.EventType;
+import com.nano.jpa.enums.Merchant;
 import com.nano.jpa.enums.OperationType;
 import com.nano.jpa.enums.PaymentStatus;
 import com.nano.jpa.enums.ReturnMode;
@@ -46,7 +46,6 @@ public class CDRDataThread implements Callable<Map<String, Object>> {
 	private Timestamp entryDate ;
 	
 	private OperationType operationType ;
-	private QueryManager queryManager ;
 	private DbManager dbManager ;
 	private ApplicationBean appBean ;
 	
@@ -90,8 +89,7 @@ public class CDRDataThread implements Callable<Map<String, Object>> {
 		this.msisdn = msisdn;
 		this.offering = offering;
 		this.operationType = operationType;
-		this.queryManager = queryManager;
-		this.referenceNumber = queryManager.retrieveLoanReferenceByMSISDN(msisdn, loanVendorId, timestamp, operationType);
+		this.referenceNumber = dbManager.retrieveLoanReferenceByMSISDN(msisdn, loanVendorId, timestamp, operationType);
 		this.repayment = repayment;
 		this.repayPoundage = repayPoundage;
 		this.returnMode = operationType.equals(OperationType.REPAYMENT) ? ReturnMode.RECHARGE : ReturnMode.TRANSFER;
@@ -104,7 +102,7 @@ public class CDRDataThread implements Callable<Map<String, Object>> {
 	public Map<String, Object> call() throws Exception {
 		// TODO Auto-generated method stub
 		
-		Subscriber subscriber = queryManager.createSubscriber(msisdn);
+		Subscriber subscriber = dbManager.createSubscriber(msisdn);
 		
 		if (operationType.equals(OperationType.LOAN))
 			loadBorrowData();
@@ -136,7 +134,7 @@ public class CDRDataThread implements Callable<Map<String, Object>> {
 		
 		dbManager.persistOtherDealing(balanceType, changeBalance, currentBalance, entryDate, etuAmount, 
 				etuGraceDate, forceRepayDate, initialEtuAmount, initialLoanAmount, initialLoanPoundage, loanAmount, loanBalanceType, 
-				loanPoundage, loanVendorId, msisdn, offering, operationType, queryManager, repayment, repayPoundage, 
+				loanPoundage, loanVendorId, msisdn, offering, operationType, repayment, repayPoundage, 
 				subid, timestamp, transid);
 		
 		stopWatch.stop();
@@ -159,7 +157,7 @@ public class CDRDataThread implements Callable<Map<String, Object>> {
 		
 		Dealing dealing = dbManager.persistDealing(balanceType, changeBalance, currentBalance, entryDate, etuAmount, 
 				etuGraceDate, forceRepayDate, initialEtuAmount, initialLoanAmount, initialLoanPoundage, loanAmount, loanBalanceType, 
-				loanPoundage, loanVendorId, msisdn, offering, operationType, queryManager, repayment, repayPoundage, 
+				loanPoundage, loanVendorId, msisdn, offering, operationType, repayment, repayPoundage, 
 				subid, timestamp, transid, referenceNumber);
 		
 		if (operationType.equals(OperationType.REPAYMENT) 
@@ -197,7 +195,7 @@ public class CDRDataThread implements Callable<Map<String, Object>> {
 			
 			response.put("eventType", EventType.RECOVERY);
 
-			queryManager.clearSubscriberDebt(subscriber);
+			dbManager.clearSubscriberDebt(subscriber);
 			log.info("removing borrow transaction from cache for msisdn:" + msisdn);
 		}else{
 			model.put("amount", repayment.add(repayPoundage));
@@ -234,7 +232,7 @@ public class CDRDataThread implements Callable<Map<String, Object>> {
 		
 		BigDecimal ammountapproved = initialLoanAmount.add(initialLoanPoundage);
 
-		IBorrow borrow = new IBorrow();
+		Borrow borrow = new Borrow();
 		borrow.setAmountApproved(ammountapproved);
 		borrow.setAmountOwedAfterBorrowed(ammountapproved);
 		borrow.setAmountOwedBeforeBorrow(BigDecimal.ZERO);
@@ -251,9 +249,9 @@ public class CDRDataThread implements Callable<Map<String, Object>> {
 		borrow.setRecoveredCharge(BigDecimal.ZERO);
 		borrow.setReferenceNo(referenceNumber);
 		borrow.setSubCosId(subid);
-		borrow.setVendorId(loanVendorId);
+		borrow.setMerchant(Merchant.fromVendorId(loanVendorId));
 
-		queryManager.create(borrow);
+		dbManager.create(borrow);
 	}
 	
 	/**
@@ -262,7 +260,7 @@ public class CDRDataThread implements Callable<Map<String, Object>> {
 	private void loadPaymentDataWithReconcilliation() {
 		// TODO Auto-generated method stub
 		
-		IPayment payment = new IPayment();
+		Payment payment = new Payment();
 		payment.setAmountOwedAfterPayment(loanAmount);
 		payment.setAmountOwedBeforePayment(initialLoanAmount);
 		payment.setAmountPaid(changeBalance);
@@ -277,10 +275,9 @@ public class CDRDataThread implements Callable<Map<String, Object>> {
 		payment.setReferenceNo(referenceNumber);
 		payment.setReturnMode(returnMode);
 		payment.setSubCosId(subid);
-		payment.setTriggerMsisdn(msisdn);
-		payment.setVendorId(loanVendorId);
+		payment.setMerchant(Merchant.fromVendorId(loanVendorId));
 
-		queryManager.create(payment);
+		dbManager.create(payment);
 		doBorrowReconcilliation();
 	}
 
@@ -290,7 +287,7 @@ public class CDRDataThread implements Callable<Map<String, Object>> {
 	private void doBorrowReconcilliation() {
 		// TODO Auto-generated method stub
 		
-		IBorrow borrow = queryManager.getBorrowByReferenceNo(referenceNumber);
+		Borrow borrow = dbManager.getBorrowByReferenceNo(referenceNumber);
 		
 		if (borrow == null)
 			return;
@@ -301,7 +298,7 @@ public class CDRDataThread implements Callable<Map<String, Object>> {
 		borrow.setPaymentStatus(paymentStatus);
 		borrow.setRecoveredCharge(initialLoanAmount.subtract(loanAmount));
 		
-		queryManager.update(borrow);
+		dbManager.update(borrow);
 	}
 
 }

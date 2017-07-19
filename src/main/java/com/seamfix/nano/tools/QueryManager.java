@@ -31,11 +31,9 @@ import com.nano.gcruncher.model.IBorrow_;
 import com.nano.gcruncher.model.IPayment;
 import com.nano.gcruncher.model.IPayment_;
 import com.nano.jpa.entity.Borrow;
-import com.nano.jpa.entity.Borrow_;
 import com.nano.jpa.entity.Nano;
 import com.nano.jpa.entity.Nano_;
 import com.nano.jpa.entity.Payment;
-import com.nano.jpa.entity.Payment_;
 import com.nano.jpa.entity.Settings;
 import com.nano.jpa.entity.Settings_;
 import com.nano.jpa.entity.Settlement;
@@ -47,7 +45,6 @@ import com.nano.jpa.entity.ras.BorrowableAmount;
 import com.nano.jpa.entity.ras.BorrowableAmount_;
 import com.nano.jpa.entity.ras.SubscriberAssessment;
 import com.nano.jpa.entity.ras.SubscriberAssessment_;
-import com.nano.jpa.enums.Merchant;
 import com.nano.jpa.enums.MerchantData;
 import com.nano.jpa.enums.OperationType;
 import com.nano.jpa.enums.PayType;
@@ -75,39 +72,6 @@ public class QueryManager {
 	@PostConstruct
 	public void init(){
 		criteriaBuilder = entityManager.getCriteriaBuilder();
-	}
-
-	/**
-	 * Fetch {@link Borrow} by subscriber, principal and timestamp properties.
-	 *
-	 * @param subscriber - subscriber detail
-	 * @param principal - principal amount given as loan
-	 * @param receivedTimestamp - time-stamp subscriber received loan value
-	 * @return {@link Borrow}
-	 */
-	public Borrow getBorrowBySubscriberAndPrincipalAndTimeStamp(Subscriber subscriber, 
-			BigDecimal principal, Timestamp receivedTimestamp){
-
-		CriteriaQuery<Borrow> criteriaQuery = criteriaBuilder.createQuery(Borrow.class);
-		Root<Borrow> root = criteriaQuery.from(Borrow.class);
-
-		Predicate predicate = criteriaBuilder.and(
-				criteriaBuilder.equal(root.get(Borrow_.principal), principal), 
-				criteriaBuilder.equal(root.get(Borrow_.receivedTimestamp), receivedTimestamp), 
-				criteriaBuilder.equal(root.get(Borrow_.subscriber), subscriber)
-				);
-
-		criteriaQuery.select(root);
-		criteriaQuery.where(predicate);
-
-		try {
-			return entityManager.createQuery(criteriaQuery).getSingleResult();
-		} catch (Exception e) {
-			// TODO Auto-generated catch block
-			log.error("No Borrow was found for subscriber:" + subscriber.getMsisdn() + " with principal:" + principal + " and receivedTimestamp:" + receivedTimestamp);
-		}
-
-		return null;
 	}
 	
 	/**
@@ -156,55 +120,6 @@ public class QueryManager {
 		subscriber.setMsisdn(formatMisisdn(msisdn));
 
 		return (Subscriber) create(subscriber);
-	}
-
-	/**
-	 * Creates payment info for a loan using <code>MapMessage</code> for optimization.
-	 * 
-	 * @param borrow - loan transaction details
-	 * @param returnAmount - amount recovered from CDR transaction
-	 * @param returnMode - transaction medium
-	 * @param merchant - merchant details
-	 * @param amountOwedBeforePayment - pending balance before transaction
-	 * @param amountOwedAfterPayment - pending balance after transaction
-	 * @param balanceAfterPayment - subscriber account after transaction
-	 * @param loanPenaltyAfterPayment - penalty calculated before transaction
-	 * @param loanPenaltyBeforePayment - penalty calculated after transaction
-	 * @param brandid - transaction brand identification
-	 * @param subcosid - transaction subCos identification
-	 * @param balanceBeforePayment - subscriber account before transaction
-	 * @param timestamp - transaction time-stamp
-	 * @param serialno - transaction serial number
-	 * @param triggermsisdn - MSISDN that triggered transaction
-	 * @return {@link Payment}
-	 */
-	public Payment initializePaymentForLoan(Borrow borrow, 
-			BigDecimal returnAmount, ReturnMode returnMode, Merchant merchant, 
-			BigDecimal amountOwedBeforePayment, BigDecimal amountOwedAfterPayment, BigDecimal balanceAfterPayment, BigDecimal loanPenaltyAfterPayment, BigDecimal loanPenaltyBeforePayment, 
-			int brandid, int subcosid, BigDecimal balanceBeforePayment, 
-			long timestamp, 
-			String serialno, String triggermsisdn){
-
-		Payment	payment = new Payment();
-		payment.setAmountOwedAfterPayment(amountOwedAfterPayment);
-		payment.setAmountOwedBeforePayment(amountOwedBeforePayment);
-		payment.setAmountPaid(returnAmount);
-		payment.setBalanceAfterPayment(balanceAfterPayment);
-		payment.setBalanceBeforePayment(balanceBeforePayment);
-		payment.setBorrow(borrow);
-		payment.setBrandId(brandid);
-		payment.setLoanPenaltyAfterPayment(loanPenaltyAfterPayment);
-		payment.setLoanPenaltyBeforePayment(loanPenaltyBeforePayment);
-		payment.setMerchant(merchant);
-		payment.setProcessedTimestamp(new Timestamp(Calendar.getInstance().getTime().getTime()));
-		payment.setRechargeAmount((balanceAfterPayment.add(returnAmount)).subtract(balanceBeforePayment));
-		payment.setRechargeTime(new Timestamp(timestamp));
-		payment.setReturnMode(returnMode);
-		payment.setSerialNo(serialno);
-		payment.setSubCosId(subcosid);
-		payment.setTriggerMsisdn(triggermsisdn);
-
-		return payment;
 	}
 
 	/**
@@ -259,63 +174,6 @@ public class QueryManager {
 	}
 
 	/**
-	 * Update {@link Borrow} with payment record using <code>MapMessage</code> for optimization.
-	 * Persist {@link Payment} record.
-	 * 
-	 * @param borrow loan transaction detail
-	 * @param paymentStatus reimbursement status
-	 * @param returnAmount amount received as reimbursement
-	 * @param servicePercentage amount charged for service
-	 * @param returnMode transaction medium
-	 * @param amountOwedBeforePayment pending balance before transaction
-	 * @param amountOwedAfterPayment pending balance after transaction
-	 * @param balanceAfterPayment subscriber account after transaction
-	 * @param loanPenaltyAfterPayment penalty calculated after transaction
-	 * @param loanPenaltyBeforePayment penalty calculated before transaction
-	 * @param brandid transaction brand identification
-	 * @param subcosid transaction subCos identification
-	 * @param balanceBeforePayment subscriber account before transaction
-	 * @param timestamp transaction time-stamp
-	 * @param serialno transaction serial number
-	 * @param triggermsisdn MSISDN responsible for transaction trigger
-	 */
-	@Lock(LockType.WRITE)
-	@TransactionAttribute(TransactionAttributeType.REQUIRES_NEW)
-	public void updateBorrowDataWithPaymentRecord(Borrow borrow, 
-			PaymentStatus paymentStatus, 
-			BigDecimal returnAmount, double servicePercentage, ReturnMode returnMode, 
-			BigDecimal amountOwedBeforePayment, BigDecimal amountOwedAfterPayment, BigDecimal balanceAfterPayment, BigDecimal loanPenaltyAfterPayment, 
-			BigDecimal loanPenaltyBeforePayment, Long brandid, Long subcosid, BigDecimal balanceBeforePayment, 
-			long timestamp, 
-			String serialno, String triggermsisdn){
-
-		BigDecimal currentPendingBalance = borrow.getCurrentPendingBalance().subtract(returnAmount);
-
-		if (currentPendingBalance.compareTo(BigDecimal.ZERO) < 0)
-			currentPendingBalance = BigDecimal.ZERO;
-
-		if (returnAmount.compareTo(borrow.getCurrentPendingBalance()) > 0)
-			returnAmount = currentPendingBalance ;
-
-		BigDecimal totalamountpaid = borrow.getAmountApproved().subtract(currentPendingBalance);
-		BigDecimal recoveredCharge = BigDecimal.valueOf((servicePercentage/100D)).multiply(totalamountpaid) ;
-
-		borrow.setCurrentPendingBalance(currentPendingBalance);
-		borrow.setPaymentStatus(paymentStatus);
-		borrow.setRecoveredCharge(recoveredCharge);
-
-		Payment payment = initializePaymentForLoan(borrow, returnAmount, returnMode, Merchant.NANO, 
-				amountOwedBeforePayment, amountOwedAfterPayment, balanceAfterPayment, loanPenaltyAfterPayment, loanPenaltyBeforePayment, 
-				Integer.parseInt(brandid.toString()), Integer.parseInt(subcosid.toString()), balanceBeforePayment, timestamp, serialno, triggermsisdn);
-
-		BigDecimal bulk = BigDecimal.valueOf((servicePercentage/100D)).multiply(returnAmount);
-		createSettlementTrail(bulk, payment, SettlementType.INTEREST);
-
-		update(borrow);
-		borrow.addPayments(payment);
-	}
-
-	/**
 	 * Clear subscriber debt.
 	 *
 	 * @param subscriber subscriber detail
@@ -353,106 +211,6 @@ public class QueryManager {
 
 			create(settlementTrail);
 		}
-	}
-
-	/**
-	 * Fetch {@link Payment} by subscriber, amount and timestamp properties.
-	 *
-	 * @param subscriber subscriber detail
-	 * @param amountPaid reimbursement amount
-	 * @param timestamp transaction time-stamp
-	 * @param merchant merchant for transaction
-	 * @return {@link Payment}
-	 */
-	@Lock(LockType.WRITE)
-	public Payment getPaymentBySubscriberAndAmountAndTimestamp(Subscriber subscriber, 
-			BigDecimal amountPaid, Timestamp timestamp, 
-			Merchant merchant){
-
-		CriteriaQuery<Payment> criteriaQuery = criteriaBuilder.createQuery(Payment.class);
-		Root<Payment> root = criteriaQuery.from(Payment.class);
-
-		Join<Payment, Borrow> join = root.join(Payment_.borrow);
-
-		Predicate predicate = criteriaBuilder.and(
-				criteriaBuilder.equal(root.get(Payment_.rechargeTime), timestamp), 
-				criteriaBuilder.equal(root.get(Payment_.amountPaid), amountPaid), 
-				criteriaBuilder.equal(join.get(Borrow_.subscriber), subscriber)
-				);
-
-		criteriaQuery.select(root);
-		if (merchant != null)
-			criteriaQuery.where(predicate, criteriaBuilder.equal(root.get(Payment_.merchant), merchant));
-		else
-			criteriaQuery.where(predicate);
-
-		try {
-			return entityManager.createQuery(criteriaQuery).getSingleResult();
-		} catch (Exception e) {
-			// TODO Auto-generated catch block
-			log.error("No payment was found for subscriber:" + subscriber.getMsisdn() + " with rechargeTime:" + timestamp + " and amount:" + amountPaid);
-		}
-
-		return null;
-	}
-
-	/**
-	 * Fetch {@link Payment} by subscriber, amount and time-stamp properties.
-	 *
-	 * @param borrow borrow detail
-	 * @param timestamp transaction time-stamp
-	 * @return {@link Payment}
-	 */
-	@Lock(LockType.WRITE)
-	public Payment getPaymentByBorrowAndTimestamp(Borrow borrow, 
-			Timestamp timestamp){
-
-		CriteriaQuery<Payment> criteriaQuery = criteriaBuilder.createQuery(Payment.class);
-		Root<Payment> root = criteriaQuery.from(Payment.class);
-
-		criteriaQuery.select(root);
-		criteriaQuery.where(criteriaBuilder.and(
-				criteriaBuilder.equal(root.get(Payment_.rechargeTime), timestamp), 
-				criteriaBuilder.equal(root.get(Payment_.borrow), borrow)
-				));
-
-		try {
-			return entityManager.createQuery(criteriaQuery).getSingleResult();
-		} catch (Exception e) {
-			// TODO Auto-generated catch block
-			log.error("No payment was found for borrow:" + borrow.getPk() + " with rechargeTime:" + timestamp);
-		}
-
-		return null;
-	}
-
-	/**
-	 * Fetch {@link Payment} primaryKey by borrow and time stamp properties.
-	 *
-	 * @param borrow borrow detail
-	 * @param timestamp transaction time-stamp
-	 * @return {@link Payment}
-	 */
-	public Long getPaymentPKByBorrowAndTimestamp(Borrow borrow, 
-			Timestamp timestamp){
-
-		CriteriaQuery<Long> criteriaQuery = criteriaBuilder.createQuery(Long.class);
-		Root<Payment> root = criteriaQuery.from(Payment.class);
-
-		criteriaQuery.select(root.get(Payment_.pk));
-		criteriaQuery.where(criteriaBuilder.and(
-				criteriaBuilder.equal(root.get(Payment_.rechargeTime), timestamp), 
-				criteriaBuilder.equal(root.get(Payment_.borrow), borrow)
-				));
-
-		try {
-			return entityManager.createQuery(criteriaQuery).getSingleResult();
-		} catch (Exception e) {
-			// TODO Auto-generated catch block
-			log.error("No payment was found for borrow:" + borrow.getPk() + " with rechargeTime:" + timestamp);
-		}
-
-		return 0L;
 	}
 
 	/**

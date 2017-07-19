@@ -6,7 +6,6 @@ import java.sql.Timestamp;
 import org.apache.commons.lang.time.StopWatch;
 import org.jboss.logging.Logger;
 
-import com.nano.jpa.entity.Subscriber;
 import com.nano.jpa.enums.ReturnMode;
 import com.seamfix.nano.cache.InfinispanObjectBucket;
 import com.seamfix.nano.tools.QueryManager;

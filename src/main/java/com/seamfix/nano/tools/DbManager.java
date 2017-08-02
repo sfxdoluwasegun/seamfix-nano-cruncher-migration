@@ -3,7 +3,6 @@ package com.seamfix.nano.tools;
 import java.math.BigDecimal;
 import java.sql.Timestamp;
 import java.time.LocalDateTime;
-import java.time.format.DateTimeFormatter;
 import java.util.Calendar;
 import java.util.List;
 import java.util.concurrent.TimeUnit;
@@ -16,7 +15,6 @@ import javax.ejb.LockType;
 import javax.ejb.Singleton;
 import javax.ejb.TransactionAttribute;
 import javax.ejb.TransactionAttributeType;
-import javax.inject.Inject;
 import javax.persistence.EntityManager;
 import javax.persistence.PersistenceContext;
 import javax.persistence.criteria.CriteriaBuilder;
@@ -31,6 +29,8 @@ import com.nano.jpa.entity.Borrow;
 import com.nano.jpa.entity.Borrow_;
 import com.nano.jpa.entity.Dealing;
 import com.nano.jpa.entity.Dealing_;
+import com.nano.jpa.entity.Loan;
+import com.nano.jpa.entity.Loan_;
 import com.nano.jpa.entity.OtherDealing;
 import com.nano.jpa.entity.OtherDealing_;
 import com.nano.jpa.entity.Payment;
@@ -48,7 +48,6 @@ import com.nano.jpa.enums.OperationType;
 import com.nano.jpa.enums.PaymentStatus;
 import com.nano.jpa.enums.ReturnMode;
 import com.nano.jpa.enums.SettlementType;
-import com.seamfix.nano.jbeans.ApplicationBean;
 
 @Singleton
 @Lock(LockType.READ)
@@ -61,9 +60,6 @@ public class DbManager {
 
 	@PersistenceContext(unitName = "nano-jpa")
 	private EntityManager entityManager ;
-	
-	@Inject
-	private ApplicationBean appBean ;
 
 	@PostConstruct
 	public void init(){
@@ -83,71 +79,42 @@ public class DbManager {
 	public String retrieveLoanReferenceByMSISDN(String msisdn, String vendorid, Timestamp timestamp, OperationType operationType) {
 		// TODO Auto-generated method stub
 		
-		if (operationType.equals(OperationType.LOAN))
-			return retrieveLoanReference(msisdn, vendorid, timestamp);
-		else
-			return retrieveLoanReferenceForPayment(msisdn, vendorid, timestamp);
+		if (!operationType.equals(OperationType.LOAN))
+			return "";
+		
+		return getReferenceNoFromLatestLoanRequestByMSISDNAndTimestamp(msisdn, timestamp);
 	}
 	
 	/**
-	 * Retrieve reference number to be used for {@link Payment} record.
+	 * Fetch {@link Loan} by MSISDN and date properties.
 	 * 
 	 * @param msisdn subscriber unique reference
-	 * @param vendorid vendor unique reference
 	 * @param timestamp time of event recorded in CDR log
-	 * @return generated referenceNo
+	 * @return Loan reference number
 	 */
-	private String retrieveLoanReferenceForPayment(String msisdn, String vendorid, Timestamp timestamp) {
+	private String getReferenceNoFromLatestLoanRequestByMSISDNAndTimestamp(String msisdn, Timestamp timestamp) {
 		// TODO Auto-generated method stub
 		
-		Borrow borrow = getEarliestBorrowByMSISDNAndVendorIdAndPaymentTimestamp(msisdn, vendorid, timestamp);
-		if (borrow == null)
-			return null;
+		CriteriaQuery<String> criteriaQuery = criteriaBuilder.createQuery(String.class);
+		Root<Loan> root = criteriaQuery.from(Loan.class);
 		
-		return borrow.getReferenceNo();
-	}
-
-	/**
-	 * Retrieve reference number to be used for {@link Borrow} record.
-	 * 
-	 * @param msisdn subscriber unique reference
-	 * @param vendorid vendor unique reference
-	 * @param timestamp time of event recorded in CDR log
-	 * @return generated referenceNo
-	 */
-	private String retrieveLoanReference(String msisdn, String vendorid, Timestamp timestamp) {
-		// TODO Auto-generated method stub
+		Join<Loan, Subscriber> subscriber = root.join(Loan_.subscriber);
 		
-		if (appBean.getVendorid().equalsIgnoreCase(vendorid))
-			return generateReference("OTHERS|");
+		criteriaQuery.select(root.get(Loan_.referenceNo));
+		criteriaQuery.where(criteriaBuilder.and(
+				criteriaBuilder.equal(subscriber.get(Subscriber_.msisdn), msisdn), 
+				criteriaBuilder.lessThanOrEqualTo(root.get(Loan_.date), timestamp)
+				));
+		criteriaQuery.orderBy(criteriaBuilder.desc(root.get(Loan_.date)));
 		
-		SubscriberAssessment subscriberAssessment = getSubscriberAssessmentBySubscriber(msisdn);
-		if (subscriberAssessment != null){
-			Timestamp timestamp2 = subscriberAssessment.getLoanTime();
-			String referenceNo =  subscriberAssessment.getLoanRef();
-			if (!timestamp.after(timestamp2) && referenceNo != null)
-				return referenceNo;
+		try {
+			return entityManager.createQuery(criteriaQuery).setMaxResults(1).getSingleResult();
+		} catch (Exception e) {
+			// TODO Auto-generated catch block
+			log.warn("No Loan instance found for MSISDN:" + msisdn + " before or by:" + timestamp);
 		}
 		
-		return generateReference("NANO|");
-	}
-
-	/**
-	 * Generate unique borrow reference number.
-	 * 
-	 * @param prefix prefix to be appended to generated reference number
-	 * @return unique referenceNo
-	 */
-	private String generateReference(String prefix) {
-		// TODO Auto-generated method stub
-		
-		String referenceNo = new StringBuilder(prefix).append(LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyyMMddHHmmssSS"))).toString();
-		
-		while (getBorrowByReferenceNo(referenceNo) != null) {
-			referenceNo = new StringBuilder(prefix).append(LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyyMMddHHmmssSS"))).toString();
-		}
-		
-		return referenceNo;
+		return null;
 	}
 	
 	/**
@@ -156,9 +123,10 @@ public class DbManager {
 	 * @param msisdn subscriber unique reference
 	 * @param vendorid vendor unique reference
 	 * @param timestamp time of event recorded in CDR log
-	 * @return {@link IBorrow}
+	 * @return IBorrow record
 	 */
-	private Borrow getEarliestBorrowByMSISDNAndVendorIdAndPaymentTimestamp(String msisdn, String vendorid,
+	@Deprecated
+	Borrow getEarliestBorrowByMSISDNAndVendorIdAndPaymentTimestamp(String msisdn, String vendorid,
 			Timestamp timestamp) {
 		// TODO Auto-generated method stub
 		
@@ -185,10 +153,10 @@ public class DbManager {
 	}
 	
 	/**
-	 * Fetch SubscriberAssessment by MSISDN.
+	 * Fetch {@link SubscriberAssessment} by MSISDN.
 	 * 
 	 * @param msisdn subscriber unique reference
-	 * @return {@link SubscriberAssessment}
+	 * @return SubscriberAssessment record
 	 */
 	public SubscriberAssessment getSubscriberAssessmentBySubscriber(String msisdn) {
 		// TODO Auto-generated method stub
@@ -212,10 +180,10 @@ public class DbManager {
 	}
 	
 	/**
-	 * Fetch Borrow by referenceNo property.
+	 * Fetch {@link Borrow} by referenceNo property.
 	 * 
-	 * @param referenceNo
-	 * @return {@link Borrow}
+	 * @param referenceNo transaction unique reference
+	 * @return Borrow record
 	 */
 	public Borrow getBorrowByReferenceNo(String referenceNo) {
 		// TODO Auto-generated method stub
@@ -237,12 +205,12 @@ public class DbManager {
 	}
 	
 	/**
-	 * Fetch Dealing by MSISDN, operationTime and operationType properties.
+	 * Fetch {@link Dealing} by MSISDN, operationTime and operationType properties.
 	 * 
-	 * @param msisdn
-	 * @param timestamp
-	 * @param operationType
-	 * @return {@link Dealing}
+	 * @param msisdn subscriber unique MSISDN
+	 * @param timestamp time stamp of transaction
+	 * @param operationType operation type
+	 * @return Dealing record
 	 */
 	public Dealing getDealingByMSISDNAndOperationTimeAndOperationType(String msisdn, Timestamp timestamp,
 			OperationType operationType) {
@@ -269,12 +237,12 @@ public class DbManager {
 	}
 
 	/**
-	 * Fetch OtherDealing by MSISDN, operationTime and operationType properties.
+	 * Fetch {@link OtherDealing} by MSISDN, operationTime and operationType properties.
 	 * 
-	 * @param msisdn
-	 * @param timestamp
-	 * @param operationType
-	 * @return {@link OtherDealing}
+	 * @param msisdn subscriber unique MSISDN
+	 * @param timestamp time stamp of transaction
+	 * @param operationType operation type
+	 * @return OtherDealing record
 	 */
 	public OtherDealing getOtherDealingByMSISDNAndOperationTimeAndOperationType(String msisdn, Timestamp timestamp,
 			OperationType operationType) {
@@ -301,32 +269,32 @@ public class DbManager {
 	}
 
 	/**
-	 * Create new Dealing instance.
+	 * Create new {@link Dealing} instance.
 	 * 
-	 * @param balanceType
-	 * @param changeBalance
-	 * @param currentBalance
-	 * @param entryDate
-	 * @param etuAmount
-	 * @param etuGraceDate
-	 * @param forceRepayDate
-	 * @param initialEtuAmount
-	 * @param initialLoanAmount
-	 * @param initialLoanPoundage
-	 * @param loanAmount
-	 * @param loanBalanceType
-	 * @param loanPoundage
-	 * @param loanVendorId
-	 * @param msisdn
-	 * @param offering
-	 * @param operationType
-	 * @param repayment
-	 * @param repayPoundage
-	 * @param subid
-	 * @param timestamp
-	 * @param transid
-	 * @param referenceNumber 
-	 * @return {@link Dealing}
+	 * @param balanceType transaction balance type
+	 * @param changeBalance differential in subscribers balance
+	 * @param currentBalance subscribers current balance post transaction
+	 * @param entryDate time stamp of file generation
+	 * @param etuAmount amount subscriber is penalized
+	 * @param etuGraceDate penalty grace period
+	 * @param forceRepayDate date at which loan is forcefully obtained from subscriber
+	 * @param initialEtuAmount penalized amount before transaction
+	 * @param initialLoanAmount penalized amount after transaction
+	 * @param initialLoanPoundage service charge due before transaction
+	 * @param loanAmount pending loan amount
+	 * @param loanBalanceType loan balance type
+	 * @param loanPoundage service charge due after transaction
+	 * @param loanVendorId vendor to which transaction belongs
+	 * @param msisdn subscribe unique MSISDN
+	 * @param offering offering
+	 * @param operationType operation which triggered transaction
+	 * @param repayment amount reimbursed
+	 * @param repayPoundage service charged reimbursed
+	 * @param subid subscriber identity
+	 * @param timestamp time stamp of transaction
+	 * @param transid transaction identifier
+	 * @param referenceNumber transaction unique reference
+	 * @return Dealing record
 	 */
 	@TransactionAttribute(TransactionAttributeType.REQUIRES_NEW)
 	public Dealing persistDealing(long balanceType, BigDecimal changeBalance,
@@ -369,30 +337,30 @@ public class DbManager {
 	}
 
 	/**
-	 * Create new OtherDealing instance.
+	 * Create new {@link OtherDealing} instance.
 	 * 
-	 * @param balanceType
-	 * @param changeBalance
-	 * @param currentBalance
-	 * @param entryDate
-	 * @param etuAmount
-	 * @param etuGraceDate
-	 * @param forceRepayDate
-	 * @param initialEtuAmount
-	 * @param initialLoanAmount
-	 * @param initialLoanPoundage
-	 * @param loanAmount
-	 * @param loanBalanceType
-	 * @param loanPoundage
-	 * @param loanVendorId
-	 * @param msisdn
-	 * @param offering
-	 * @param operationType
-	 * @param repayment
-	 * @param repayPoundage
-	 * @param subid
-	 * @param timestamp
-	 * @param transid
+	 * @param balanceType transaction balance type
+	 * @param changeBalance differential in subscribers balance
+	 * @param currentBalance subscribers current balance post transaction
+	 * @param entryDate time stamp of file generation
+	 * @param etuAmount amount subscriber is penalized
+	 * @param etuGraceDate penalty grace period
+	 * @param forceRepayDate date at which loan is forcefully obtained from subscriber
+	 * @param initialEtuAmount penalized amount before transaction
+	 * @param initialLoanAmount penalized amount after transaction
+	 * @param initialLoanPoundage service charge due before transaction
+	 * @param loanAmount pending loan amount
+	 * @param loanBalanceType loan balance type
+	 * @param loanPoundage service charge due after transaction
+	 * @param loanVendorId vendor to which transaction belongs
+	 * @param msisdn subscribe unique MSISDN
+	 * @param offering offering
+	 * @param operationType operation which triggered transaction
+	 * @param repayment amount reimbursed
+	 * @param repayPoundage service charged reimbursed
+	 * @param subid subscriber identity
+	 * @param timestamp time stamp of transaction
+	 * @param transid transaction identifier
 	 */
 	@Asynchronous
 	public void persistOtherDealing(long balanceType, BigDecimal changeBalance, BigDecimal currentBalance,
@@ -432,10 +400,10 @@ public class DbManager {
 	/**
 	 * Fetch {@link Borrow} by subscriber, principal and timestamp properties.
 	 *
-	 * @param subscriber - subscriber detail
-	 * @param principal - principal amount given as loan
-	 * @param receivedTimestamp - time-stamp subscriber received loan value
-	 * @return {@link Borrow}
+	 * @param subscriber subscriber detail
+	 * @param principal principal amount given as loan
+	 * @param receivedTimestamp time-stamp subscriber received loan value
+	 * @return Borrow record
 	 */
 	public Borrow getBorrowBySubscriberAndPrincipalAndTimeStamp(Subscriber subscriber, 
 			BigDecimal principal, Timestamp receivedTimestamp){
@@ -457,6 +425,74 @@ public class DbManager {
 		} catch (Exception e) {
 			// TODO Auto-generated catch block
 			log.error("No Borrow was found for subscriber:" + subscriber.getMsisdn() + " with principal:" + principal + " and receivedTimestamp:" + receivedTimestamp);
+		}
+
+		return null;
+	}
+	
+	/**
+	 * Fetch {@link Borrow} by subscriber, principal and timestamp properties.
+	 *
+	 * @param msisdn subscriber unique MSISDN
+	 * @param principal principal amount given as loan
+	 * @param receivedTimestamp time-stamp subscriber received loan value
+	 * @return Borrow record
+	 */
+	public Borrow getBorrowBySubscriberAndPrincipalAndTimeStamp(String msisdn, 
+			BigDecimal principal, Timestamp receivedTimestamp){
+
+		CriteriaQuery<Borrow> criteriaQuery = criteriaBuilder.createQuery(Borrow.class);
+		Root<Borrow> root = criteriaQuery.from(Borrow.class);
+
+		Predicate predicate = criteriaBuilder.and(
+				criteriaBuilder.equal(root.get(Borrow_.principal), principal), 
+				criteriaBuilder.equal(root.get(Borrow_.receivedTimestamp), receivedTimestamp), 
+				criteriaBuilder.equal(root.get(Borrow_.msisdn), msisdn)
+				);
+
+		criteriaQuery.select(root);
+		criteriaQuery.where(predicate);
+
+		try {
+			return entityManager.createQuery(criteriaQuery).getSingleResult();
+		} catch (Exception e) {
+			// TODO Auto-generated catch block
+			log.error("No Borrow was found for subscriber:" + msisdn + " with principal:" + principal + " and receivedTimestamp:" + receivedTimestamp);
+		}
+
+		return null;
+	}
+	
+	/**
+	 * Fetch {@link Borrow} by subscriber, principal and timestamp properties.
+	 *
+	 * @param msisdn subscriber unique MSISDN
+	 * @param principal principal amount given as loan
+	 * @param receivedTimestamp time-stamp subscriber received loan value
+	 * @param merchant vendor to which transaction belongs
+	 * @return Borrow record
+	 */
+	public Borrow getBorrowBySubscriberAndPrincipalAndTimeStamp(String msisdn, 
+			BigDecimal principal, Timestamp receivedTimestamp, Merchant merchant){
+
+		CriteriaQuery<Borrow> criteriaQuery = criteriaBuilder.createQuery(Borrow.class);
+		Root<Borrow> root = criteriaQuery.from(Borrow.class);
+
+		Predicate predicate = criteriaBuilder.and(
+				criteriaBuilder.equal(root.get(Borrow_.principal), principal), 
+				criteriaBuilder.equal(root.get(Borrow_.receivedTimestamp), receivedTimestamp), 
+				criteriaBuilder.equal(root.get(Borrow_.msisdn), msisdn), 
+				criteriaBuilder.equal(root.get(Borrow_.merchant), merchant)
+				);
+
+		criteriaQuery.select(root);
+		criteriaQuery.where(predicate);
+
+		try {
+			return entityManager.createQuery(criteriaQuery).getSingleResult();
+		} catch (Exception e) {
+			// TODO Auto-generated catch block
+			log.error("No Borrow was found for subscriber:" + msisdn + " with principal:" + principal + " and receivedTimestamp:" + receivedTimestamp + " and merchant:" + merchant);
 		}
 
 		return null;
@@ -552,7 +588,7 @@ public class DbManager {
 	 * Fetch {@link Settlement} by {@link SettlementType} property.
 	 *
 	 * @param settlementType enumeration declaring settlement category
-	 * @return {@link Settlement}
+	 * @return Settlement record
 	 */
 	public List<Settlement> getSettlementBySettlementType(SettlementType settlementType){
 
@@ -576,7 +612,7 @@ public class DbManager {
 	}
 	
 	/**
-	 * Creates payment info for a loan using <code>MapMessage</code> for optimization.
+	 * Creates {@link Payment} info for a loan using <code>MapMessage</code> for optimization.
 	 * 
 	 * @param borrow - loan transaction details
 	 * @param returnAmount - amount recovered from CDR transaction
@@ -593,7 +629,7 @@ public class DbManager {
 	 * @param timestamp - transaction time-stamp
 	 * @param serialno - transaction serial number
 	 * @param triggermsisdn - MSISDN that triggered transaction
-	 * @return {@link Payment}
+	 * @return Payment record
 	 */
 	public Payment initializePaymentForLoan(Borrow borrow, 
 			BigDecimal returnAmount, ReturnMode returnMode, Merchant merchant, 
@@ -628,7 +664,7 @@ public class DbManager {
 	 * @param amountPaid reimbursement amount
 	 * @param timestamp transaction time-stamp
 	 * @param merchant merchant for transaction
-	 * @return {@link Payment}
+	 * @return Payment record
 	 */
 	@Lock(LockType.WRITE)
 	public Payment getPaymentBySubscriberAndAmountAndTimestamp(Subscriber subscriber, 
@@ -661,69 +697,49 @@ public class DbManager {
 	}
 	
 	/**
-	 * Fetch {@link Payment} by subscriber, amount and time-stamp properties.
+	 * Fetch {@link Payment} by subscriber, amount and timestamp properties.
 	 *
-	 * @param borrow borrow detail
+	 * @param subscriber subscriber detail
+	 * @param amountPaid reimbursement amount
 	 * @param timestamp transaction time-stamp
-	 * @return {@link Payment}
+	 * @param merchant merchant for transaction
+	 * @return Payment record
 	 */
 	@Lock(LockType.WRITE)
-	public Payment getPaymentByBorrowAndTimestamp(Borrow borrow, 
-			Timestamp timestamp){
+	public Payment getPaymentBySubscriberAndAmountAndTimestamp(String msisdn, 
+			BigDecimal amountPaid, Timestamp timestamp, 
+			Merchant merchant){
 
 		CriteriaQuery<Payment> criteriaQuery = criteriaBuilder.createQuery(Payment.class);
 		Root<Payment> root = criteriaQuery.from(Payment.class);
 
-		criteriaQuery.select(root);
-		criteriaQuery.where(criteriaBuilder.and(
+		Predicate predicate = criteriaBuilder.and(
 				criteriaBuilder.equal(root.get(Payment_.rechargeTime), timestamp), 
-				criteriaBuilder.equal(root.get(Payment_.referenceNo), borrow.getReferenceNo())
-				));
+				criteriaBuilder.equal(root.get(Payment_.amountPaid), amountPaid), 
+				criteriaBuilder.equal(root.get(Payment_.msisdn), msisdn)
+				);
+
+		criteriaQuery.select(root);
+		if (merchant != null)
+			criteriaQuery.where(predicate, criteriaBuilder.equal(root.get(Payment_.merchant), merchant));
+		else
+			criteriaQuery.where(predicate);
 
 		try {
 			return entityManager.createQuery(criteriaQuery).getSingleResult();
 		} catch (Exception e) {
 			// TODO Auto-generated catch block
-			log.error("No payment was found for borrow:" + borrow.getPk() + " with rechargeTime:" + timestamp);
+			log.error("No payment was found for subscriber:" + msisdn + " with rechargeTime:" + timestamp + " and amount:" + amountPaid);
 		}
 
 		return null;
-	}
-
-	/**
-	 * Fetch {@link Payment} primaryKey by borrow and time stamp properties.
-	 *
-	 * @param borrow borrow detail
-	 * @param timestamp transaction time-stamp
-	 * @return {@link Payment}
-	 */
-	public Long getPaymentPKByBorrowAndTimestamp(Borrow borrow, 
-			Timestamp timestamp){
-
-		CriteriaQuery<Long> criteriaQuery = criteriaBuilder.createQuery(Long.class);
-		Root<Payment> root = criteriaQuery.from(Payment.class);
-
-		criteriaQuery.select(root.get(Payment_.pk));
-		criteriaQuery.where(criteriaBuilder.and(
-				criteriaBuilder.equal(root.get(Payment_.rechargeTime), timestamp), 
-				criteriaBuilder.equal(root.get(Payment_.referenceNo), borrow.getReferenceNo())
-				));
-
-		try {
-			return entityManager.createQuery(criteriaQuery).getSingleResult();
-		} catch (Exception e) {
-			// TODO Auto-generated catch block
-			log.error("No payment was found for borrow:" + borrow.getPk() + " with rechargeTime:" + timestamp);
-		}
-
-		return 0L;
 	}
 	
 	/**
 	 * Fetch {@link Subscriber} by MSISDN property.
 	 * 
 	 * @param msisdn subscriber MSISDN
-	 * @return {@link Subscriber}
+	 * @return Subscriber record
 	 */
 	@Lock(LockType.WRITE)
 	public Subscriber getSubscriberByMsisdn(String msisdn){
@@ -747,8 +763,8 @@ public class DbManager {
 	/**
 	 * Creates or fetches a unique {@link Subscriber} record.
 	 *
-	 * @param msisdn - subscriber MSISDN
-	 * @return {@link Subscriber}
+	 * @param msisdn subscriber MSISDN
+	 * @return Subscriber record
 	 */
 	@Lock(LockType.WRITE)
 	@TransactionAttribute(TransactionAttributeType.REQUIRES_NEW)

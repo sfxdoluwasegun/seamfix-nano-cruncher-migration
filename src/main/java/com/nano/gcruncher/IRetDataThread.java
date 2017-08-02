@@ -7,7 +7,6 @@ import org.apache.commons.lang.time.StopWatch;
 import org.jboss.logging.Logger;
 
 import com.nano.jpa.enums.ReturnMode;
-import com.seamfix.nano.cache.InfinispanObjectBucket;
 import com.seamfix.nano.tools.QueryManager;
 
 public class IRetDataThread implements Runnable {
@@ -55,7 +54,7 @@ public class IRetDataThread implements Runnable {
 	 * @param triggermsisdn - MSISDN responsible for trigerring transaction
 	 */
 	public IRetDataThread(QueryManager queryManager, 
-			InfinispanObjectBucket infinispanBucketCache, 
+			//InfinispanObjectBucket infinispanBucketCache, 
 			BigDecimal accountleft, BigDecimal afaccountleft, BigDecimal borrowvaluesaf, BigDecimal borrowvaluesbf, long brandid, BigDecimal etupenaltyaf, BigDecimal etupenaltybf, 
 			BigDecimal returnamount, int returnmode, long subcosid, 
 			long timestamp, 

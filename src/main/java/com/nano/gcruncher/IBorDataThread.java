@@ -5,7 +5,6 @@ import java.sql.Timestamp;
 import org.apache.commons.lang.time.StopWatch;
 import org.jboss.logging.Logger;
 
-import com.seamfix.nano.cache.InfinispanObjectBucket;
 import com.seamfix.nano.tools.QueryManager;
 
 public class IBorDataThread implements Runnable {
@@ -32,7 +31,7 @@ public class IBorDataThread implements Runnable {
 	private long timestamp ;
 	
 	public IBorDataThread(QueryManager queryManager, 
-			InfinispanObjectBucket infinispanBucketCache, 
+			//InfinispanObjectBucket infinispanBucketCache, 
 			BigDecimal accountleft, BigDecimal bfaccountleft, BigDecimal bfborrowvalues, BigDecimal borrowvalues, BigDecimal charge, long brandid, long homeareanumber, long subcosid, 
 			String msisdn, String serialid, String vendorid, String referenceno, 
 			long timestamp) {

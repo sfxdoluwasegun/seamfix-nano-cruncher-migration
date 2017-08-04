@@ -28,11 +28,6 @@
 			<version>3.3.1.Final</version>
 		</dependency>
 		<dependency>
-			<groupId>org.infinispan</groupId>
-			<artifactId>infinispan-core</artifactId>
-			<version>5.3.0.Final</version>
-		</dependency>
-		<dependency>
 			<groupId>org.jboss.ejb3</groupId>
 			<artifactId>jboss-ejb3-ext-api</artifactId>
 			<version>2.2.0.Final</version>
@@ -51,11 +46,6 @@
 			<groupId>commons-io</groupId>
 			<artifactId>commons-io</artifactId>
 			<version>2.5</version>
-		</dependency>
-		<dependency>
-			<groupId>org.freemarker</groupId>
-			<artifactId>freemarker</artifactId>
-			<version>2.3.23</version>
 		</dependency>
     </dependencies>
 
@@ -81,7 +71,7 @@
                     <ejbVersion>3.1</ejbVersion>
                     <archive>
 						<manifestEntries>
-							<Dependencies>deployment.freemarker-2.3.23.jar, deployment.commons-io-2.5.jar, deployment.commons-lang-2.6.jar, deployment.nano-jpa-2.1.0-SNAPSHOT.jar, org.infinispan, org.infinispan.commons, org.jboss.as.clustering.infinispan</Dependencies>
+							<Dependencies>deployment.commons-io-2.5.jar, deployment.commons-lang-2.6.jar, deployment.nano-jpa.jar</Dependencies>
 						</manifestEntries>
 					</archive>
                 </configuration>

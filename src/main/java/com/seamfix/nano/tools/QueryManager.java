@@ -3,7 +3,6 @@ package com.seamfix.nano.tools;
 import java.math.BigDecimal;
 import java.sql.Timestamp;
 import java.time.LocalDateTime;
-import java.time.format.DateTimeFormatter;
 import java.util.Calendar;
 import java.util.List;
 import java.util.concurrent.TimeUnit;
@@ -15,7 +14,6 @@ import javax.ejb.LockType;
 import javax.ejb.Singleton;
 import javax.ejb.TransactionAttribute;
 import javax.ejb.TransactionAttributeType;
-import javax.inject.Inject;
 import javax.persistence.EntityManager;
 import javax.persistence.PersistenceContext;
 import javax.persistence.criteria.CriteriaBuilder;
@@ -31,6 +29,8 @@ import com.nano.gcruncher.model.IBorrow_;
 import com.nano.gcruncher.model.IPayment;
 import com.nano.gcruncher.model.IPayment_;
 import com.nano.jpa.entity.Borrow;
+import com.nano.jpa.entity.Loan;
+import com.nano.jpa.entity.Loan_;
 import com.nano.jpa.entity.Nano;
 import com.nano.jpa.entity.Nano_;
 import com.nano.jpa.entity.Payment;
@@ -52,7 +52,6 @@ import com.nano.jpa.enums.PaymentStatus;
 import com.nano.jpa.enums.ReturnMode;
 import com.nano.jpa.enums.SettingType;
 import com.nano.jpa.enums.SettlementType;
-import com.seamfix.nano.jbeans.ApplicationBean;
 
 @Singleton
 @Lock(LockType.READ)
@@ -66,9 +65,6 @@ public class QueryManager {
 	@PersistenceContext(unitName = "nano-ext")
 	private EntityManager entityManager ;
 
-	@Inject
-	private ApplicationBean appBean;
-
 	@PostConstruct
 	public void init(){
 		criteriaBuilder = entityManager.getCriteriaBuilder();
@@ -77,8 +73,8 @@ public class QueryManager {
 	/**
 	 * Fetch Borrow by referenceNo property.
 	 * 
-	 * @param referenceNo
-	 * @return {@link Borrow}
+	 * @param referenceNo loan unique reference
+	 * @return Borrow record
 	 */
 	public IBorrow getBorrowByReferenceNo(String referenceNo) {
 		// TODO Auto-generated method stub
@@ -490,7 +486,7 @@ public class QueryManager {
 	 * @param msisdn subscriber MSISDN
 	 * @param principal principal amount given as loan
 	 * @param receivedTimestamp time-stamp subscriber received loan value
-	 * @return {@link (IBorrow}
+	 * @return Borrow record
 	 */
 	public IBorrow getBorrowBySubscriberAndPrincipalAndTimeStamp(String msisdn, 
 			BigDecimal principal, Timestamp receivedTimestamp){
@@ -663,8 +659,7 @@ public class QueryManager {
 	 * Create a fresh SubscriberAssessment.
 	 * 
 	 * @param subscriber details of subscriber
-	 * @param subscriberState details of current state of subscriber account
-	 * @return {@link SubscriberAssessment}
+	 * @return subscriber assessment record
 	 */
 	@TransactionAttribute(TransactionAttributeType.REQUIRES_NEW)
 	public SubscriberAssessment createNewAssessment(Subscriber subscriber){
@@ -695,7 +690,8 @@ public class QueryManager {
 	 * @param timestamp time of event recorded in CDR log
 	 * @return {@link IBorrow}
 	 */
-	private IBorrow getEarliestBorrowByMSISDNAndVendorIdAndPaymentTimestamp(String msisdn, String vendorid,
+	@Deprecated
+	IBorrow getEarliestBorrowByMSISDNAndVendorIdAndPaymentTimestamp(String msisdn, String vendorid,
 			Timestamp timestamp) {
 		// TODO Auto-generated method stub
 		
@@ -734,71 +730,42 @@ public class QueryManager {
 	public String retrieveLoanReferenceByMSISDN(String msisdn, String vendorid, Timestamp timestamp, OperationType operationType) {
 		// TODO Auto-generated method stub
 		
-		if (operationType.equals(OperationType.LOAN))
-			return retrieveLoanReference(msisdn, vendorid, timestamp);
-		else
-			return retrieveLoanReferenceForPayment(msisdn, vendorid, timestamp);
+		if (!operationType.equals(OperationType.LOAN))
+			return "";
+		
+		return getReferenceNoFromLatestLoanRequestByMSISDNAndTimestamp(msisdn, timestamp);
 	}
-
+	
 	/**
-	 * Retrieve reference number to be used for {@link Payment} record.
+	 * Fetch {@link Loan} by MSISDN and date properties.
 	 * 
 	 * @param msisdn subscriber unique reference
-	 * @param vendorid vendor unique reference
 	 * @param timestamp time of event recorded in CDR log
-	 * @return generated referenceNo
+	 * @return Loan reference number
 	 */
-	private String retrieveLoanReferenceForPayment(String msisdn, String vendorid, Timestamp timestamp) {
+	private String getReferenceNoFromLatestLoanRequestByMSISDNAndTimestamp(String msisdn, Timestamp timestamp) {
 		// TODO Auto-generated method stub
 		
-		IBorrow borrow = getEarliestBorrowByMSISDNAndVendorIdAndPaymentTimestamp(msisdn, vendorid, timestamp);
-		if (borrow == null)
-			return null;
+		CriteriaQuery<String> criteriaQuery = criteriaBuilder.createQuery(String.class);
+		Root<Loan> root = criteriaQuery.from(Loan.class);
 		
-		return borrow.getReferenceNo();
-	}
-
-	/**
-	 * Retrieve reference number to be used for {@link Borrow} record.
-	 * 
-	 * @param msisdn subscriber unique reference
-	 * @param vendorid vendor unique reference
-	 * @param timestamp time of event recorded in CDR log
-	 * @return generated referenceNo
-	 */
-	private String retrieveLoanReference(String msisdn, String vendorid, Timestamp timestamp) {
-		// TODO Auto-generated method stub
+		Join<Loan, Subscriber> subscriber = root.join(Loan_.subscriber);
 		
-		if (appBean.getVendorid().equalsIgnoreCase(vendorid))
-			return generateReference("OTHERS|");
+		criteriaQuery.select(root.get(Loan_.referenceNo));
+		criteriaQuery.where(criteriaBuilder.and(
+				criteriaBuilder.equal(subscriber.get(Subscriber_.msisdn), msisdn), 
+				criteriaBuilder.lessThanOrEqualTo(root.get(Loan_.date), timestamp)
+				));
+		criteriaQuery.orderBy(criteriaBuilder.desc(root.get(Loan_.date)));
 		
-		SubscriberAssessment subscriberAssessment = getSubscriberAssessmentBySubscriber(msisdn);
-		if (subscriberAssessment != null){
-			Timestamp timestamp2 = subscriberAssessment.getLoanTime();
-			String referenceNo =  subscriberAssessment.getLoanRef();
-			if (!timestamp.after(timestamp2) && referenceNo != null)
-				return referenceNo;
+		try {
+			return entityManager.createQuery(criteriaQuery).setMaxResults(1).getSingleResult();
+		} catch (Exception e) {
+			// TODO Auto-generated catch block
+			log.warn("No Loan instance found for MSISDN:" + msisdn + " before or by:" + timestamp);
 		}
 		
-		return generateReference("NANO|");
-	}
-
-	/**
-	 * Generate unique borrow reference number.
-	 * 
-	 * @param prefix prefix to be appended to generated reference number
-	 * @return unique referenceNo
-	 */
-	private String generateReference(String prefix) {
-		// TODO Auto-generated method stub
-		
-		String referenceNo = new StringBuilder(prefix).append(LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyyMMddHHmmssSS"))).toString();
-		
-		while (getBorrowByReferenceNo(referenceNo) != null) {
-			referenceNo = new StringBuilder(prefix).append(LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyyMMddHHmmssSS"))).toString();
-		}
-		
-		return referenceNo;
+		return null;
 	}
 
 }

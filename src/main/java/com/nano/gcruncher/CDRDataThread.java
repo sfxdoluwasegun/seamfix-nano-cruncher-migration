@@ -3,30 +3,21 @@ package com.nano.gcruncher;
 import java.math.BigDecimal;
 import java.sql.Timestamp;
 import java.time.LocalDateTime;
-import java.util.HashMap;
-import java.util.Map;
-import java.util.concurrent.Callable;
-
 import org.apache.commons.lang.time.StopWatch;
 import org.jboss.logging.Logger;
 
 import com.nano.jpa.entity.Borrow;
-import com.nano.jpa.entity.Dealing;
 import com.nano.jpa.entity.Payment;
 import com.nano.jpa.entity.Subscriber;
-import com.nano.jpa.enums.EventType;
 import com.nano.jpa.enums.Merchant;
 import com.nano.jpa.enums.OperationType;
 import com.nano.jpa.enums.PaymentStatus;
 import com.nano.jpa.enums.ReturnMode;
-import com.seamfix.nano.enums.SercomStandardResp;
-import com.seamfix.nano.enums.SmppResponse;
-import com.seamfix.nano.jbeans.ApplicationBean;
+import com.seamfix.nano.tools.ApplicationBean;
 import com.seamfix.nano.tools.DbManager;
-import com.seamfix.nano.tools.MessageModel;
 import com.seamfix.nano.tools.QueryManager;
 
-public class CDRDataThread implements Callable<Map<String, Object>> {
+public class CDRDataThread implements Runnable {
 	
 	private Logger log = Logger.getLogger(getClass());
 	
@@ -98,8 +89,7 @@ public class CDRDataThread implements Callable<Map<String, Object>> {
 		this.transid = transid;
 	}
 
-	@Override
-	public Map<String, Object> call() throws Exception {
+	public void run() {
 		// TODO Auto-generated method stub
 		
 		Subscriber subscriber = dbManager.createSubscriber(msisdn);
@@ -109,13 +99,10 @@ public class CDRDataThread implements Callable<Map<String, Object>> {
 		else
 			loadPaymentDataWithReconcilliation();
 		
-		if (dbManager.getDealingByMSISDNAndOperationTimeAndOperationType(msisdn, timestamp, operationType) != null)
-			return null;
-		
 		if (appBean.getVendorid().equalsIgnoreCase(loanVendorId))
-			return persistNanoDeal(subscriber);
+			persistNanoDeal(subscriber);
 		else
-			return persistNONNanoDeal();
+			persistNONNanoDeal();
 	}
 
 	/**
@@ -123,11 +110,11 @@ public class CDRDataThread implements Callable<Map<String, Object>> {
 	 * 
 	 * @return null
 	 */
-	private Map<String, Object> persistNONNanoDeal() {
+	private void persistNONNanoDeal() {
 		// TODO Auto-generated method stub
 		
 		if (dbManager.getOtherDealingByMSISDNAndOperationTimeAndOperationType(msisdn, timestamp, operationType) != null)
-			return null;
+			return ;
 		
 		StopWatch stopWatch = new StopWatch();
 		stopWatch.start();
@@ -139,8 +126,6 @@ public class CDRDataThread implements Callable<Map<String, Object>> {
 		
 		stopWatch.stop();
 		log.info("Time taken to comlete CDR data crunching:" + stopWatch.getTime() + "ms");
-		
-		return null;
 	}
 
 	/**
@@ -149,79 +134,22 @@ public class CDRDataThread implements Callable<Map<String, Object>> {
 	 * @param subscriber
 	 * @return null
 	 */
-	private Map<String, Object> persistNanoDeal(Subscriber subscriber) {
+	private void persistNanoDeal(Subscriber subscriber) {
 		// TODO Auto-generated method stub
+		
+		if (dbManager.getDealingByMSISDNAndOperationTimeAndOperationType(msisdn, timestamp, operationType) != null)
+			return;
 		
 		StopWatch stopWatch = new StopWatch();
 		stopWatch.start();
 		
-		Dealing dealing = dbManager.persistDealing(balanceType, changeBalance, currentBalance, entryDate, etuAmount, 
+		dbManager.persistDealing(balanceType, changeBalance, currentBalance, entryDate, etuAmount, 
 				etuGraceDate, forceRepayDate, initialEtuAmount, initialLoanAmount, initialLoanPoundage, loanAmount, loanBalanceType, 
 				loanPoundage, loanVendorId, msisdn, offering, operationType, repayment, repayPoundage, 
 				subid, timestamp, transid, referenceNumber);
 		
-		if (operationType.equals(OperationType.REPAYMENT) 
-				|| operationType.equals(OperationType.TRANSFER) 
-				|| operationType.equals(OperationType.FORCIBLE)){
-			stopWatch.stop();
-			log.info("Time taken to comlete CDR data crunching:" + stopWatch.getTime() + "ms");
-			return handleRepaymentPostProcessing(subscriber, dealing);
-		}
-		
 		stopWatch.stop();
 		log.info("Time taken to comlete CDR data crunching:" + stopWatch.getTime() + "ms");
-		
-		return null;
-	}
-
-	/**
-	 * Handle loan repayment.
-	 * 
-	 * @param subscriber
-	 * @param dealing
-	 * @return Map response containing details for Sercom/SMPP notifications
-	 */
-	private Map<String, Object> handleRepaymentPostProcessing(Subscriber subscriber, Dealing dealing) {
-		// TODO Auto-generated method stub
-		
-		Map<String, Object> model = new HashMap<String, Object>();
-		MessageModel messageModel = new MessageModel();
-		
-		Map<String, Object> response = new HashMap<>();
-
-		if (loanAmount.compareTo(BigDecimal.ZERO) == 0){
-			model.put("amount", repayment.add(repayPoundage));
-			model.put("template", SmppResponse.FULLY_COVERED.getResponse());
-			
-			response.put("eventType", EventType.RECOVERY);
-
-			dbManager.clearSubscriberDebt(subscriber);
-			log.info("removing borrow transaction from cache for msisdn:" + msisdn);
-		}else{
-			model.put("amount", repayment.add(repayPoundage));
-			model.put("outstanding", loanAmount);
-			model.put("template", SmppResponse.PARTLY_COVERED.getResponse());
-			
-			response.put("eventType", EventType.PARTIAL);
-		}
-		
-		messageModel.setModel(model);
-
-		String paymentRef = new StringBuilder(msisdn).append("^").append(timestamp.getTime()).toString();
-		String amountdebited = String.valueOf((repayment.multiply(BigDecimal.valueOf(100D))).toBigInteger());
-		String outstandingDebt = String.valueOf((loanAmount.multiply(BigDecimal.valueOf(100D))).toBigInteger());
-
-		response.put("subscriber", subscriber);
-		response.put("messageModel", messageModel);
-		response.put("paymentRef", paymentRef);
-		response.put("notificationpk", dealing.getPk());
-		response.put("sercomResponse", SercomStandardResp.SUCCESS);
-		response.put("amountdebited", amountdebited);
-		response.put("outstandingDebt", outstandingDebt);
-		response.put("referenceNo", referenceNumber);
-		response.put("returnMode", returnMode);
-		
-		return response;
 	}
 	
 	/**
@@ -229,6 +157,9 @@ public class CDRDataThread implements Callable<Map<String, Object>> {
 	 */
 	private void loadBorrowData() {
 		// TODO Auto-generated method stub
+		
+		if (dbManager.getBorrowBySubscriberAndPrincipalAndTimeStamp(msisdn, initialLoanAmount, timestamp, Merchant.fromVendorId(loanVendorId)) != null)
+			return;
 		
 		BigDecimal ammountapproved = initialLoanAmount.add(initialLoanPoundage);
 
@@ -260,6 +191,9 @@ public class CDRDataThread implements Callable<Map<String, Object>> {
 	private void loadPaymentDataWithReconcilliation() {
 		// TODO Auto-generated method stub
 		
+		if (dbManager.getPaymentBySubscriberAndAmountAndTimestamp(msisdn, changeBalance, timestamp, Merchant.fromVendorId(loanVendorId)) != null)
+			return;
+		
 		Payment payment = new Payment();
 		payment.setAmountOwedAfterPayment(loanAmount);
 		payment.setAmountOwedBeforePayment(initialLoanAmount);
@@ -269,36 +203,18 @@ public class CDRDataThread implements Callable<Map<String, Object>> {
 		payment.setLoanPenaltyAfterPayment(etuAmount);
 		payment.setLoanPenaltyBeforePayment(initialEtuAmount);
 		payment.setMsisdn(msisdn);
+		payment.setOperationType(operationType);
+		payment.setPoundagePaid(repayPoundage);
+		payment.setPoundagBeforePayment(initialLoanPoundage);
+		payment.setPoundageAfterPayment(loanPoundage);
 		payment.setProcessedTimestamp(Timestamp.valueOf(LocalDateTime.now()));
 		payment.setRechargeAmount(repayment);
 		payment.setRechargeTime(timestamp);
-		payment.setReferenceNo(referenceNumber);
 		payment.setReturnMode(returnMode);
 		payment.setSubCosId(subid);
 		payment.setMerchant(Merchant.fromVendorId(loanVendorId));
 
 		dbManager.create(payment);
-		doBorrowReconcilliation();
-	}
-
-	/**
-	 * Reconcile {@link Borrow} log.
-	 */
-	private void doBorrowReconcilliation() {
-		// TODO Auto-generated method stub
-		
-		Borrow borrow = dbManager.getBorrowByReferenceNo(referenceNumber);
-		
-		if (borrow == null)
-			return;
-		
-		PaymentStatus paymentStatus = loanAmount.compareTo(BigDecimal.ZERO) < 1 ? PaymentStatus.COMPLETE : PaymentStatus.PARTIAL ;
-		
-		borrow.setCurrentPendingBalance(loanAmount);
-		borrow.setPaymentStatus(paymentStatus);
-		borrow.setRecoveredCharge(initialLoanAmount.subtract(loanAmount));
-		
-		dbManager.update(borrow);
 	}
 
 }

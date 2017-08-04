@@ -1,4 +1,4 @@
-package com.seamfix.nano.jbeans;
+package com.seamfix.nano.tools;
 
 import javax.annotation.PostConstruct;
 import javax.enterprise.context.ApplicationScoped;

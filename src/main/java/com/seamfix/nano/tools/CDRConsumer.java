@@ -13,7 +13,6 @@ import java.io.File;
 import java.io.IOException;
 import javax.annotation.Resource;
 import javax.ejb.ActivationConfigProperty;
-import javax.ejb.DependsOn;
 import javax.ejb.MessageDriven;
 import javax.ejb.MessageDrivenContext;
 import javax.inject.Inject;
@@ -27,7 +26,6 @@ import javax.jms.MessageListener;
  * @author martin
  */
 
-@DependsOn(value = {"StartupManager"})
 @ResourceAdapter(value = "cdractivemq")
 @MessageDriven(mappedName = "queue/cdrpath", activationConfig = {
 		@ActivationConfigProperty(propertyName = "destinationType", propertyValue = "javax.jms.Queue"), 

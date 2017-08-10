@@ -72,6 +72,9 @@ public class IPayment extends IEntity implements Serializable {
 	
 	@Column(name = "vendor_id", nullable = true)
 	private String vendorId ;
+	
+	@Column(name = "loan_reference", nullable = true)
+	private String referenceNo ;
 
 	public String getSerialNo() {
 		return serialNo;
@@ -207,6 +210,14 @@ public class IPayment extends IEntity implements Serializable {
 
 	public void setVendorId(String vendorId) {
 		this.vendorId = vendorId;
+	}
+
+	public String getReferenceNo() {
+		return referenceNo;
+	}
+
+	public void setReferenceNo(String referenceNo) {
+		this.referenceNo = referenceNo;
 	}
 
 }

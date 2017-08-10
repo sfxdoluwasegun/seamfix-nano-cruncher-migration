@@ -6,9 +6,7 @@ import java.sql.Timestamp;
 import org.apache.commons.lang.time.StopWatch;
 import org.jboss.logging.Logger;
 
-import com.nano.jpa.entity.Subscriber;
 import com.nano.jpa.enums.ReturnMode;
-import com.seamfix.nano.cache.InfinispanObjectBucket;
 import com.seamfix.nano.tools.QueryManager;
 
 public class IRetDataThread implements Runnable {
@@ -56,7 +54,7 @@ public class IRetDataThread implements Runnable {
 	 * @param triggermsisdn - MSISDN responsible for trigerring transaction
 	 */
 	public IRetDataThread(QueryManager queryManager, 
-			InfinispanObjectBucket infinispanBucketCache, 
+			//InfinispanObjectBucket infinispanBucketCache, 
 			BigDecimal accountleft, BigDecimal afaccountleft, BigDecimal borrowvaluesaf, BigDecimal borrowvaluesbf, long brandid, BigDecimal etupenaltyaf, BigDecimal etupenaltybf, 
 			BigDecimal returnamount, int returnmode, long subcosid, 
 			long timestamp, 
@@ -85,21 +83,19 @@ public class IRetDataThread implements Runnable {
 	public void run() {
 		// TODO Auto-generated method stub
 		
-		Subscriber subscriber = queryManager.createSubscriber(msisdn);
+		//Subscriber subscriber = queryManager.createSubscriber(msisdn);
 		
 		if (queryManager.getPaymentByBorrowAndTimestamp(msisdn, new Timestamp(timestamp)) != null)
 			return ;
 		
-		startRechargeDataLoading(subscriber, returnamount, borrowvaluesaf);
+		startRechargeDataLoading(returnamount, borrowvaluesaf);
 	}
 
-	private void startRechargeDataLoading(Subscriber subscriber, BigDecimal returnamount2, BigDecimal borrowvaluesaf2) {
+	private void startRechargeDataLoading(BigDecimal returnamount2, BigDecimal borrowvaluesaf2) {
 		// TODO Auto-generated method stub
 		
 		StopWatch stopWatch = new StopWatch();
 		stopWatch.start();
-		
-		String msisdn = subscriber.getMsisdn();
 		
 		ReturnMode returnMode = returnmode == 1 ? ReturnMode.RECHARGE : ReturnMode.TRANSFER;
 

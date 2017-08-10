@@ -4,7 +4,7 @@
 
     <groupId>com.nano</groupId>
     <artifactId>nano-cruncher</artifactId>
-    <version>0.0.2-SNAPSHOT</version>
+    <version>0.0.2-FINAL</version>
     <packaging>ejb</packaging>
 
     <name>nano-cruncher</name>
